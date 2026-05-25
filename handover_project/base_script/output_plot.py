@@ -10,6 +10,7 @@ import seaborn as sns
 import numpy as np
 from pathlib import Path
 import re
+import random
 
 pd.options.mode.chained_assignment = None  # default='warn'
 
@@ -31,8 +32,11 @@ out_of_service = True
 get_throuthput_ho_v2 = True
 # 8. Number of ping-pong handovers
 ping_pong_handovers = True
-# 9. Save the results into a csv
-save_plot_values = True
+# 9. Doppler Shifts
+doppler_shifts = True
+
+# Save the results into a csv
+save_plot_values = False
 
 
 # ================================================================================================
@@ -113,6 +117,8 @@ if(visible_sats_over_time):
             os.makedirs(target_dir, exist_ok=True)
             values_df.to_csv(csv_file_path, index=False)
     plt.close()
+
+    print("   Completed!")
 
     print("1.1 Printing the number of visible beams for each ue ...")
     for df_name, fname in zip(dfnames, fnames):
@@ -708,7 +714,6 @@ if(out_of_service):
         else:
             print(f"Skipping KDE for Cluster {i+1} Out of Service Time due to lack of variance or data.")
 
-        # --- SAVE PLOT VALUES ---
         if save_plot_values and csv_data:
             os.makedirs(os.path.join(output_folder, fname), exist_ok=True)
             kde_df = pd.DataFrame(dict([(k, pd.Series(v)) for k, v in csv_data.items()])) 
@@ -746,7 +751,6 @@ if(get_throuthput_ho_v2):
             thr = df['dl_thr'].tolist()
             ues_thr.append(thr)
 
-        # --- Fix: truncate all series to the shortest length ---
         min_len = min(len(t) for t in ues_thr)
         ues_thr = [t[:min_len] for t in ues_thr]
 
@@ -756,8 +760,6 @@ if(get_throuthput_ho_v2):
 
         ax.plot(time_vector, avg_thr, label=f"Cluster {i+1}: {fname}", color=color)
         print(f"{fname} avg thr: ", np.mean(avg_thr))
-
-        # --- Save plot values (invariato) ---
         if(save_plot_values):
             os.makedirs(os.path.join(output_folder, fname), exist_ok=True)
             df_export = pd.DataFrame({
@@ -768,7 +770,6 @@ if(get_throuthput_ho_v2):
             csv_file_path = os.path.join(output_folder, fname, "7-DL_throughput_ho_values.csv")
             df_export.to_csv(csv_file_path, index=False)
 
-    # --- Finalize and Save the Combined Plot ---
     ax.set_title('Average DL Throughputs over Time - All Clusters')
     ax.set_xlabel('Time')
     ax.set_ylabel('DL Throughput [Mbit/s]')
@@ -785,9 +786,9 @@ if(get_throuthput_ho_v2):
 # ========================================================================================================= #
 
 
-# 9. Number of ping-pong handovers
+# 8. Number of ping-pong handovers
 if(ping_pong_handovers):
-    print("9. Printing the average number of ping-pong handovers ...")
+    print("8. Printing the average number of ping-pong handovers ...")
     folder_path = Path('Cluster1 dataframes')
     ping_pong_count = []
     num_ues = 0
@@ -804,3 +805,84 @@ if(ping_pong_handovers):
         num_ues += 1
 
     print(f"   Average number of ping-pong handovers: {np.mean(ping_pong_count)}")
+    print("   Completed!\n")
+
+# ========================================================================================================= #
+
+
+# 9. UL/DL Doppler Shifts over time
+if(doppler_shifts):
+
+    print("9. Plotting the UL/DL Doppler Shifts over time ...")
+
+    plt.figure(figsize=(14, 7))
+    for i, (df_name, fname) in enumerate(zip(dfnames, fnames)):
+        folder_path = Path("Cluster" + str(i+1) + " throughput")
+        
+        for file_path in folder_path.glob('*.csv'):
+            df = pd.read_csv(file_path)
+            
+            # Convert time to datetime
+            df['time'] = pd.to_datetime(df['time'])
+            # Check where 'sat.id' is different from the previous row's 'sat.id'.
+            handovers = df[(df['sat.id'].shift(1).notna()) & (df['sat.id'] != df['sat.id'].shift(1))]
+            
+            dl_label = f'DL Cluster{str(i+1)}' 
+            ul_label = f'UL Cluster{str(i+1)}' 
+            plt.plot(df['time'], df['doppler_shift_dl_KHz'], label=dl_label, color=colors1[i])
+            plt.plot(df['time'], df['doppler_shift_ul_KHz'], label=ul_label, color=colors2[i])
+            
+            # Mark handover events with a red X
+            if not handovers.empty:
+                ho_label = f'HO Cluster{str(i+1)}'
+                plt.scatter(handovers['time'], handovers['doppler_shift_ul_KHz'], 
+                            color='red', marker='X', s=100, zorder=5, label=ho_label)
+                
+            break # Only plot the first file for this cluster
+
+    # Format the plot
+    plt.xlabel('Time')
+    plt.ylabel('Doppler Shift (KHz)')
+    plt.title('DL and UL Doppler Shifts over Time with Handover Events')
+    plt.gca().xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
+    plt.legend()
+    plt.grid(True, linestyle='--', alpha=0.7)
+    plt.xticks(rotation=45, ha='right')
+    plt.tight_layout()
+    combined_file_path = os.path.join(output_folder, "9-Doppler Shifts.png")
+    plt.savefig(combined_file_path)
+
+    print("   Completed!")
+
+# 9.1 UL/DL Doppler Shifts for a single random satellite connection (focus plot)
+if(doppler_shifts):
+    print("9.1 Plotting Doppler Shifts for a single random satellite connection ...")
+
+    folder_path = Path("Cluster1 throughput")
+    # take the first CSV file
+    file_path = list(folder_path.glob('*.csv'))[0] 
+    
+    df = pd.read_csv(file_path)
+    df['time'] = pd.to_datetime(df['time'])
+    unique_sats = df['sat.id'].dropna().unique()
+    chosen_sat = random.choice(unique_sats)
+    print(f"    -> Selected satellite: {chosen_sat}")
+    df_sat = df[df['sat.id'] == chosen_sat]
+
+    plt.figure(figsize=(12, 6))
+    plt.plot(df_sat['time'], df_sat['doppler_shift_dl_KHz'], label='DL', color='#1f77b4', linewidth=2)
+    plt.plot(df_sat['time'], df_sat['doppler_shift_ul_KHz'], label='UL', color='#ff7f0e', linewidth=2)
+
+    plt.xlabel('Time')
+    plt.ylabel('Doppler Shi        # --- SAVE PLOT VALUES ---ft (KHz)')
+    plt.title(f'DL and UL Doppler Shifts (Connection to {chosen_sat})')
+    plt.gca().xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
+    plt.legend()
+    plt.grid(True, linestyle='--', alpha=0.7)
+    plt.xticks(rotation=45, ha='right')
+    plt.tight_layout()
+
+    combined_file_path = os.path.join(output_folder, "9.1-Doppler Shift Focus.png")
+    plt.savefig(combined_file_path)
+
+    print("   Completed!\n")
