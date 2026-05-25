@@ -12,8 +12,6 @@ import utils
 
 # initial configuration
 df_name_1 = "100km_25beams_sc9_padova.csv"
-ho_condition_1 = ("ELEVATION", 30)
-sat_selection_condition_1 = "AVL_THR"
 enable_elevation_threshold = True
 elevation_threshold = 30
 
@@ -24,6 +22,9 @@ mu_intra = 1 * 1e-3
 servers = 1
 scenario = utils.sc9_parameters
 handover_timer = 40
+
+ho_condition_1 = ("TIMER", handover_timer)
+sat_selection_condition_1 = "MAX_ELEVATION"
 
 ####################################
 ########### ho_condition ###########

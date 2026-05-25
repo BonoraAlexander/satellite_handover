@@ -57,7 +57,8 @@ sc6_parameters = {
     'ul_db_headroom' : 0,  # dB
     'dlul_snr_variance' : 1, # variance of the noise added to the UE snr measurement to simulate real-world measurement imperfections
     '3gpp_overhead_dl': 0.18, # additional percentage of overhead as specified by 3GPP TS 38.306
-    '3gpp_overhead_ul': 0.1
+    '3gpp_overhead_ul': 0.1,
+    'frequency_reuse_factor': 1 # divide the total available bandwidth by this factor
 }
 
 sc9_parameters = {
@@ -74,7 +75,8 @@ sc9_parameters = {
     'ul_db_headroom' : 2,  # dB
     'dlul_snr_variance' : 1, # variance of the noise added to the UE snr measurement to simulate real-world measurement imperfections
     '3gpp_overhead_dl': 0.14, # additional percentage of overhead as specified by 3GPP TS 38.306
-    '3gpp_overhead_ul': 0.08
+    '3gpp_overhead_ul': 0.08,
+    'frequency_reuse_factor': 1 # divide the total available bandwidth by this factor
 }
 
 def get_satellites_at_time(df, target_time):
@@ -373,8 +375,11 @@ def compute_shannon(distance_m, parameters):
     snr_dl_linear = 10 ** (snr_dl_db / 10)
     snr_ul_linear = 10 ** (snr_ul_db / 10)
 
-    dl_thr_mbps = round(parameters['bw_dl'] * math.log2(1 + snr_dl_linear) / 1e6, 4)
-    ul_thr_mbps = round(parameters['bw_ul'] * math.log2(1 + snr_ul_linear) / 1e6, 4)
+    per_user_bandwidth_dl = parameters['bw_dl'] / parameters['frequency_reuse_factor']
+    per_user_bandwidth_ul = parameters['bw_ul'] / parameters['frequency_reuse_factor']
+
+    dl_thr_mbps = round(per_user_bandwidth_dl * math.log2(1 + snr_dl_linear) / 1e6, 4)
+    ul_thr_mbps = round(per_user_bandwidth_ul * math.log2(1 + snr_ul_linear) / 1e6, 4)
 
     return dl_thr_mbps, ul_thr_mbps
 
@@ -382,14 +387,17 @@ def compute_shannon_from_snr(snr_dl_db, snr_ul_db, parameters):
     snr_dl_linear = 10 ** (snr_dl_db / 10)
     snr_ul_linear = 10 ** (snr_ul_db / 10)
 
-    dl_thr_mbps = round(parameters['bw_dl'] * math.log2(1 + snr_dl_linear) / 1e6, 4)
-    ul_thr_mbps = round(parameters['bw_ul'] * math.log2(1 + snr_ul_linear) / 1e6, 4)
+    per_user_bandwidth_dl = parameters['bw_dl'] / parameters['frequency_reuse_factor']
+    per_user_bandwidth_ul = parameters['bw_ul'] / parameters['frequency_reuse_factor']
+
+    dl_thr_mbps = round(per_user_bandwidth_dl * math.log2(1 + snr_dl_linear) / 1e6, 4)
+    ul_thr_mbps = round(per_user_bandwidth_ul * math.log2(1 + snr_ul_linear) / 1e6, 4)
 
     return dl_thr_mbps, ul_thr_mbps
 
 def reverse_snr_from_thr(dl_ue_thr, ul_ue_thr, parameters):
-    snr_dl_linear = (2 ** (dl_ue_thr * 1e6 / parameters['bw_dl']) - 1)
-    snr_ul_linear = (2 ** (ul_ue_thr * 1e6 / parameters['bw_ul']) - 1)
+    snr_dl_linear = (2 ** (dl_ue_thr * 1e6 / parameters['bw_dl'] * parameters['frequency_reuse_factor']) - 1)
+    snr_ul_linear = (2 ** (ul_ue_thr * 1e6 / parameters['bw_ul'] * parameters['frequency_reuse_factor']) - 1)
 
     snr_dl_db = round(10 * math.log10(snr_dl_linear), 4)
     snr_ul_db = round(10 * math.log10(snr_ul_linear), 4)
