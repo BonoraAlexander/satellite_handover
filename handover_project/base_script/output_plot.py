@@ -473,17 +473,29 @@ if(average_service_time):
 
         # Dictionary to hold data for CSV saving later
         csv_data = {}
-        
+
         # Check for enough data and variance to do a KDE
         if len(cluster_beam_durations) > 1 and min(cluster_beam_durations) != max(cluster_beam_durations):
-            kde_intra = gaussian_kde(cluster_beam_durations)
-            x_min_intra, x_max_intra = min(cluster_beam_durations), max(cluster_beam_durations)
-            margin_intra = (x_max_intra - x_min_intra) * 0.2
-            kde_x_intra = np.linspace(x_min_intra - margin_intra, x_max_intra + margin_intra, 500)
-            kde_y_intra = kde_intra(kde_x_intra)
+            # 1. Convert to numpy array
+            data_intra = np.array(cluster_beam_durations)
+            
+            # 2. Mirror the data across zero
+            mirrored_data_intra = np.concatenate([data_intra, -data_intra])
+            
+            # 3. Fit KDE on the mirrored data
+            kde_intra = gaussian_kde(mirrored_data_intra)
+            
+            # 4. Set up the X-axis (strictly starting at 0)
+            x_max_intra = max(data_intra)
+            margin_intra = x_max_intra * 0.2
+            kde_x_intra = np.linspace(0, x_max_intra + margin_intra, 500)
+            
+            # 5. Evaluate and multiply by 2 to recover the spilled mass
+            kde_y_intra = kde_intra(kde_x_intra) * 2
 
             # Plot solid line for Intra
             ax.plot(kde_x_intra, kde_y_intra, color=color, linestyle='-', linewidth=1.5)
+            # ... (rest of your plotting code remains the same)
             ax.fill_between(kde_x_intra, kde_y_intra, alpha=0.2, color=color,
                             label=f"Cluster {i+1}: {fname}, intra")
             
@@ -499,13 +511,24 @@ if(average_service_time):
             print(f"Skipping KDE for Cluster {i+1} Intra HO due to lack of variance.")
 
         if len(cluster_sat_durations) > 1 and min(cluster_sat_durations) != max(cluster_sat_durations):
-            kde_inter = gaussian_kde(cluster_sat_durations)
-            x_min_inter, x_max_inter = min(cluster_sat_durations), max(cluster_sat_durations)
-            margin_inter = (x_max_inter - x_min_inter) * 0.2
-            kde_x_inter = np.linspace(x_min_inter - margin_inter, x_max_inter + margin_inter, 500)
-            kde_y_inter = kde_inter(kde_x_inter)
+            # 1. Convert to numpy array
+            data_inter = np.array(cluster_sat_durations)
+            
+            # 2. Mirror the data across zero
+            mirrored_data_inter = np.concatenate([data_inter, -data_inter])
+            
+            # 3. Fit KDE on the mirrored data
+            kde_inter = gaussian_kde(mirrored_data_inter)
+            
+            # 4. Set up the X-axis (strictly starting at 0)
+            x_max_inter = max(data_inter)
+            margin_inter = x_max_inter * 0.2
+            kde_x_inter = np.linspace(0, x_max_inter + margin_inter, 500)
+            
+            # 5. Evaluate and multiply by 2 to recover the spilled mass
+            kde_y_inter = kde_inter(kde_x_inter) * 2
 
-            # Plot dashed line for Inter to distinguish it
+            # Plot solid line for Intra
             ax.plot(kde_x_inter, kde_y_inter, color=color, linestyle='--', linewidth=1.5)
             ax.fill_between(kde_x_inter, kde_y_inter, alpha=0.1, color=color, # Lighter alpha
                             label=f"Cluster {i+1}: {fname}, inter")
@@ -531,6 +554,7 @@ if(average_service_time):
     ax.set_title(f'Probability Density of Service Time - All Clusters ({period} Period) - {num_ues_label} UEs')
     ax.set_xlabel('Service Time [s]')
     ax.set_ylabel('Probability Density')
+    # ax.set_xlim(left=0)     
     ax.grid(axis='y', alpha=0.3)
     ax.legend(title="Clusters", bbox_to_anchor=(1.05, 1), loc='upper left')
 
@@ -572,13 +596,23 @@ if(ho_handled):
 
     # Check for enough data and variance to do a KDE
     if len(intra_ho_count) > 1 and min(intra_ho_count) != max(intra_ho_count):
-        kde_intra = gaussian_kde(intra_ho_count)
-        x_min_intra, x_max_intra = min(intra_ho_count), max(intra_ho_count)
-        margin_intra = (x_max_intra - x_min_intra) * 0.2
-        kde_x_intra = np.linspace(x_min_intra - margin_intra, x_max_intra + margin_intra, 500)
-        kde_y_intra = kde_intra(kde_x_intra)
+        # 1. Convert to numpy array
+        data_intra = np.array(intra_ho_count)
+        
+        # 2. Mirror the data across zero
+        mirrored_data_intra = np.concatenate([data_intra, -data_intra])
+        
+        # 3. Fit KDE on the mirrored data
+        kde_intra = gaussian_kde(mirrored_data_intra)
+        
+        # 4. Set up the X-axis (strictly starting at 0)
+        x_max_intra = max(data_intra)
+        margin_intra = x_max_intra * 0.2
+        kde_x_intra = np.linspace(0, x_max_intra + margin_intra, 500)
+        
+        # 5. Evaluate and multiply by 2 to recover the spilled mass
+        kde_y_intra = kde_intra(kde_x_intra) * 2
 
-        # Plot solid line for Intra
         ax.plot(kde_x_intra, kde_y_intra, color=colors1[0], linestyle='-', linewidth=1.5)
         ax.fill_between(kde_x_intra, kde_y_intra, alpha=0.2, color=colors1[0],
                         label=f"Intra-handovers")
@@ -595,13 +629,23 @@ if(ho_handled):
         print(f"Skipping KDE for Intra HO due to lack of variance.")
 
     if len(inter_ho_count) > 1 and min(inter_ho_count) != max(inter_ho_count):
-        kde_inter = gaussian_kde(inter_ho_count)
-        x_min_inter, x_max_inter = min(inter_ho_count), max(inter_ho_count)
-        margin_inter = (x_max_inter - x_min_inter) * 0.2
-        kde_x_inter = np.linspace(x_min_inter - margin_inter, x_max_inter + margin_inter, 500)
-        kde_y_inter = kde_inter(kde_x_inter)
+        # 1. Convert to numpy array
+        data_inter = np.array(inter_ho_count)
+        
+        # 2. Mirror the data across zero
+        mirrored_data_inter = np.concatenate([data_inter, -data_inter])
+        
+        # 3. Fit KDE on the mirrored data
+        kde_inter = gaussian_kde(mirrored_data_inter)
+        
+        # 4. Set up the X-axis (strictly starting at 0)
+        x_max_inter = max(data_inter)
+        margin_inter = x_max_inter * 0.2
+        kde_x_inter = np.linspace(0, x_max_inter + margin_inter, 500)
+        
+        # 5. Evaluate and multiply by 2 to recover the spilled mass
+        kde_y_inter = kde_inter(kde_x_inter) * 2
 
-        # Plot dashed line for Inter to distinguish it
         ax.plot(kde_x_inter, kde_y_inter, color=colors1[1], linestyle='--', linewidth=1.5)
         ax.fill_between(kde_x_inter, kde_y_inter, alpha=0.1, color=colors1[1], # Lighter alpha
                         label=f"Inter-handovers")
