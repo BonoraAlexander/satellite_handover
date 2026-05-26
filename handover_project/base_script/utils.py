@@ -404,7 +404,7 @@ def reverse_snr_from_thr(dl_ue_thr, ul_ue_thr, parameters):
 
     return snr_dl_db, snr_ul_db
 
-def get_max_beam_throughput(frame, target_time,satellite_name, mini_cluster_position, scenario):
+def get_max_beam_throughput(frame, target_time, satellite_name, mini_cluster_position, scenario):
     mini_cluster_lat, mini_cluster_lon, _ = mini_cluster_position
     dl_total_throughput, ul_total_throughput = 0, 0
     if isinstance(target_time, datetime):

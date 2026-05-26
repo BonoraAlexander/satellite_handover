@@ -17,7 +17,7 @@ class Cluster:
         self.num_beams = num_beams
         self.enable_elevation = enable_elevation
         self.elevation_threshold = elevation_threshold
-        self.frame = satellites_frame
+        self.df_satellites_positions = satellites_frame
         self.sat_servers = servers
         self.sat_mu_inter = mu_inter
         self.sat_mu_intra = mu_intra
@@ -77,7 +77,7 @@ class Cluster:
         # Find all visible satellites at the given time
         # round to the closest sec
         round_time = (time + timedelta(microseconds=500000)).replace(microsecond=0)
-        visible_sats = utils.get_satellites_at_time(self.frame, round_time)
+        visible_sats = utils.get_satellites_at_time(self.df_satellites_positions, round_time)
 
         # visible_sats identifies all the satellites visibled by at least one mini-cluster of the cluster.
         # we need to find which mini-clusters can see each satellite
@@ -144,7 +144,7 @@ class Cluster:
         round_time = (time + timedelta(microseconds=500000)).replace(microsecond=0)
 
         # check the visibility of all satellites respect to the whole cluster
-        visible_sats = utils.get_satellites_at_time(self.frame, round_time)
+        visible_sats = utils.get_satellites_at_time(self.df_satellites_positions, round_time)
         visible_sats_for_each_minicluster = [[] for _ in range(self.num_beams)]
         for sat in visible_sats:
             sat_lat, sat_lon, sat_alt = sat[1], sat[2], sat[3]
@@ -170,7 +170,7 @@ class Cluster:
             target_time_str = round_time.strftime("%Y-%m-%d %H:%M:%S")
         else:
             target_time_str = str(round_time)
-        curr_time_df =self.frame[self.frame['time'].astype(str) == target_time_str].copy()
+        curr_time_df =self.df_satellites_positions[self.df_satellites_positions['time'].astype(str) == target_time_str].copy()
 
         # check if each UE needs to perform an intra or an inter handover based on the handover condition.
         for mini_cluster in self.list_beams:
@@ -179,6 +179,7 @@ class Cluster:
                 ue.intra_handover_flag = False
                 ue.inter_handover_flag = False
                 next_sat = None
+                next_beam_index = None
                 event = ho_condition[0]
 
                 # ============== Detect the type of required handover (if needed) ==============
@@ -196,7 +197,7 @@ class Cluster:
 
                 if(event == "SNR"):
                     dl_threshold, ul_threshold = ho_condition[1], ho_condition[2]
-                    snr_dl, snr_ul = utils.get_snr(self.frame, round_time, curr_sat.name, mini_cluster.position, self.scenario)
+                    snr_dl, snr_ul = utils.get_snr(self.df_satellites_positions, round_time, curr_sat.name, mini_cluster.position, self.scenario)
                     dl_measurement_noise = random.gauss(0, self.scenario['dlul_snr_variance'])
                     ul_measurement_noise = random.gauss(0, self.scenario['dlul_snr_variance'])
                     snr_dl += dl_measurement_noise
@@ -213,6 +214,22 @@ class Cluster:
                     sat_elev = utils.get_elevation(curr_time_df, round_time, curr_sat.name, mini_cluster.position)
                     if(sat_elev < elev_threshold):
                         ue.inter_handover_flag = True
+                elif(event == "A3"):
+                    snr_difference_threshold = ho_condition[1]
+                    snr_dl = -100
+                    if curr_sat is not None:
+                        snr_dl, _ = utils.get_noisy_snr(self.df_satellites_positions, round_time, curr_sat.name, mini_cluster.position, self.scenario)
+                        choices = len(visible_sats_for_each_minicluster[mini_cluster.index])
+                        best_satellite, best_beam_index, best_snr_dl = strategies.get_best_neighbor_snr(visible_sats_for_each_minicluster[mini_cluster.index], curr_sat.name, round_time, mini_cluster, self.df_satellites_positions, self.scenario)
+                    else:
+                        choices = len(visible_sats_for_each_minicluster[mini_cluster.index])
+                        best_satellite, best_beam_index, best_snr_dl = strategies.get_best_neighbor_snr(visible_sats_for_each_minicluster[mini_cluster.index], "", round_time, mini_cluster, self.df_satellites_positions, self.scenario)
+                    
+
+                    if(best_satellite is not None and best_snr_dl - snr_dl > snr_difference_threshold):
+                        ue.inter_handover_flag = True
+                        next_sat = best_satellite
+                        next_beam_index = best_beam_index
 
 
                 # ============== Performe the handover (if selected) ==============
@@ -222,8 +239,6 @@ class Cluster:
                     choices = len(visible_sats_for_each_minicluster[mini_cluster.index])
                     # if no one, the ue goes out of service
                     if(choices == 0):
-                        next_sat = None
-                        next_beam_index = None
                         ue.time_to_next_handover = 0 # reset the time to next handover in case of fixed timer handover condition
                     # if there is at least one, select a random one among them and handover
                     elif(sat_selection_condition == "RANDOM"):
@@ -233,7 +248,9 @@ class Cluster:
                     elif(sat_selection_condition == "MAX_VISIBILITY"):
                         next_sat, next_beam_index = strategies.get_max_visibility_satellite(visible_sats_for_each_minicluster[mini_cluster.index], curr_time_df, round_time)
                     elif(sat_selection_condition == "AVL_THR"):
-                        next_sat, next_beam_index = strategies.get_max_available_throughput_satellite(visible_sats_for_each_minicluster[mini_cluster.index], round_time, mini_cluster, service_sats, self.frame, self.scenario)
+                        next_sat, next_beam_index = strategies.get_max_available_throughput_satellite(visible_sats_for_each_minicluster[mini_cluster.index], round_time, mini_cluster, service_sats, self.df_satellites_positions, self.scenario)
+                    elif(sat_selection_condition == "A3"):
+                        pass # since the next satellite informations are filled by the trigger event function, there is no need to do anything here.
                     if(next_sat is not None):
                         selected_sat_name = next_sat[0]
                         if selected_sat_name not in service_sats:
@@ -271,7 +288,7 @@ class Cluster:
                     }
                     ue.thr_tracker.append(thr_info)
                     continue
-                max_dl_thr, max_ul_thr = utils.get_max_beam_throughput(self.frame, target_time, serving_satellite.name, mini_cluster.position, self.scenario)
+                max_dl_thr, max_ul_thr = utils.get_max_beam_throughput(self.df_satellites_positions, target_time, serving_satellite.name, mini_cluster.position, self.scenario)
                 connected_users = serving_satellite.connected_ues[serving_beam_index]
                 # instant throughput computation
                 dl_ue_throughput = max_dl_thr / connected_users

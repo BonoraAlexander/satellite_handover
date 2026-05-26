@@ -116,3 +116,22 @@ def get_max_available_throughput_satellite(visible_satellites, round_time, mini_
     next_sat = satellites_with_throughput[best_index][0]
     next_beam_index = satellites_with_throughput[best_index][1]
     return next_sat, next_beam_index
+
+def get_best_neighbor_snr(visible_satellites, curr_sat_name, round_time, mini_cluster, df_satellites_positions, scenario):
+    """
+    implementation of 3GPP Event-A3 handover condition, that is, the handover is triggered when the UE detects that
+    the SNR of a neighboring satellite becomes higher than the SNR of the serving cell by a certain threshold, usually set to 2 dB.
+    """
+    best_satellite = None
+    best_snr_dl = None
+    best_beam_index = None
+    for satellite_tuple, beam_index in visible_satellites:
+        satellite_name = satellite_tuple[0]
+        if(curr_sat_name != satellite_name):
+            current_snr_dl, _ = utils.get_noisy_snr(df_satellites_positions, round_time, satellite_name, mini_cluster.position, scenario)
+            if(best_snr_dl is None or current_snr_dl > best_snr_dl):
+                best_snr_dl = current_snr_dl
+                best_satellite = satellite_tuple
+                best_beam_index = beam_index
+    return best_satellite, best_beam_index, best_snr_dl
+
