@@ -33,10 +33,12 @@ get_throuthput_ho_v2 = True
 # 8. Number of ping-pong handovers
 ping_pong_handovers = True
 # 9. Doppler Shifts
-doppler_shifts = True
+doppler_shifts = False
+# 10. Max connected users per satellite
+max_users_per_satellite = True
 
 # Save the results into a csv
-save_plot_values = False
+save_plot_values = True
 
 
 # ================================================================================================
@@ -930,3 +932,78 @@ if(doppler_shifts):
     plt.savefig(combined_file_path)
 
     print("   Completed!\n")
+
+# 10. Plot the average occupancy of the satellites, that is, the maximum number of users that each satellite reaches
+# during the simulation.
+if(max_users_per_satellite):
+    print("10. Printing the maximum number of users registered for each satellite ...")
+    fname = fnames[0]
+    import ast
+    from pathlib import Path
+    import pandas as pd
+    import matplotlib.pyplot as plt
+
+    folder_path = Path('Satellite dataframes')
+    max_users_counts = []
+    num_sats = 0
+
+    fig, ax = plt.subplots(figsize=(12, 6))
+
+    # Helper function to safely parse and sum a single cell
+    def safe_parse_and_sum(val):
+        if pd.isna(val): # Catch NaNs explicitly
+            return 0
+        if isinstance(val, list): # In case pandas already parsed it
+            return sum(val)
+        if isinstance(val, str):
+            try:
+                parsed_list = ast.literal_eval(val)
+                if isinstance(parsed_list, list):
+                    return sum(parsed_list)
+            except (ValueError, SyntaxError):
+                return 0 # Default to 0 if the string is completely broken
+        return 0
+
+    for file_path in folder_path.glob('*.csv'):
+        try:
+            df = pd.read_csv(file_path)
+            
+            # Skip if the file is completely empty or missing our column
+            if df.empty or 'dest_number_ues' not in df.columns:
+                continue
+            
+            # Apply our safe parser row by row
+            total_users_per_time = df['dest_number_ues'].apply(safe_parse_and_sum).tolist()
+            
+            # Ensure the list isn't completely empty before trying to find the max
+            if total_users_per_time:
+                max_users_counts.append(max(total_users_per_time))
+                num_sats += 1
+            
+        except Exception as e:
+            # We print the error now instead of using 'pass' so nothing is hidden
+            print(f"File {file_path.name} failed with error: {repr(e)}")
+
+    print(f"Successfully processed {num_sats} satellites.")
+    fig, ax = plt.subplots(figsize=(12, 6))
+
+    csv_data = {}
+
+    ax.bar(range(0, num_sats), max_users_counts, color=colors1[0])
+    # Store for CSV
+    df_export = pd.DataFrame({
+                'sat_id': range(0, num_sats),
+                'max_conn_users': max_users_counts
+            })
+
+    ax.set_title(f'Maximum number of UEs connected to a satellite at any given time - {num_ues_label} UEs')
+    ax.set_xlabel('Satellite ID')
+    ax.set_ylabel('Maximum connected UEs')
+    ax.grid(axis='y', alpha=0.3)
+
+    os.makedirs(output_folder, exist_ok=True)
+    combined_file_path = os.path.join(output_folder, "10-max_ue_per_sat.png")
+    fig.savefig(combined_file_path, dpi=300, bbox_inches='tight')
+    csv_file_path = os.path.join(output_folder, fname, "10-max_ue_per_sat.csv")
+    df_export.to_csv(csv_file_path, index=False)
+    plt.close(fig)
