@@ -476,19 +476,16 @@ if(average_service_time):
             # 1. Convert to numpy array
             data_intra = np.array(cluster_beam_durations)
             
-            # 2. Mirror the data across zero
-            mirrored_data_intra = np.concatenate([data_intra, -data_intra])
-            
             # 3. Fit KDE on the mirrored data
-            kde_intra = gaussian_kde(mirrored_data_intra)
+            kde_intra = gaussian_kde(data_intra)
             
             # 4. Set up the X-axis (strictly starting at 0)
             x_max_intra = max(data_intra)
             margin_intra = x_max_intra * 0.2
             kde_x_intra = np.linspace(0, x_max_intra + margin_intra, 500)
             
-            # 5. Evaluate and multiply by 2 to recover the spilled mass
-            kde_y_intra = kde_intra(kde_x_intra) * 2
+            # 5. Evaluate
+            kde_y_intra = kde_intra(kde_x_intra)
 
             # Plot solid line for Intra
             ax.plot(kde_x_intra, kde_y_intra, color=color, linestyle='-', linewidth=1.5)
@@ -511,19 +508,16 @@ if(average_service_time):
             # 1. Convert to numpy array
             data_inter = np.array(cluster_sat_durations)
             
-            # 2. Mirror the data across zero
-            mirrored_data_inter = np.concatenate([data_inter, -data_inter])
-            
             # 3. Fit KDE on the mirrored data
-            kde_inter = gaussian_kde(mirrored_data_inter)
+            kde_inter = gaussian_kde(data_inter)
             
             # 4. Set up the X-axis (strictly starting at 0)
             x_max_inter = max(data_inter)
             margin_inter = x_max_inter * 0.2
             kde_x_inter = np.linspace(0, x_max_inter + margin_inter, 500)
             
-            # 5. Evaluate and multiply by 2 to recover the spilled mass
-            kde_y_inter = kde_inter(kde_x_inter) * 2
+            # 5. Evaluate
+            kde_y_inter = kde_inter(kde_x_inter)
 
             # Plot solid line for Intra
             ax.plot(kde_x_inter, kde_y_inter, color=color, linestyle='--', linewidth=1.5)
@@ -565,12 +559,12 @@ if(average_service_time):
 
 # 5. Number of handover processes handled by each satellite
 if(ho_handled):
-    print("5. Priting the average number of handover handled for each satellite ...")
+    print("5. Printing the average number of handover handled for each satellite ...")
     folder_path = Path('Satellite dataframes')
     intra_ho_count = []
     inter_ho_count = []
     num_sats = 0
-    fname = 'Satellites'
+    fname = fnames[0]
 
     fig, ax = plt.subplots(figsize=(12, 6))
     
@@ -581,6 +575,7 @@ if(ho_handled):
             df = pd.read_csv(file_path)
             count_intra = len(df[df['event_type'] == 'intra_ho'])
             count_inter = len(df[df['event_type'] == 'inter_ho'])
+            # print(f"satellite {file_path} inter handovers {count_inter}")
             intra_ho_count.append(count_intra)
             inter_ho_count.append(count_inter)
             num_sats += 1
@@ -596,19 +591,16 @@ if(ho_handled):
         # 1. Convert to numpy array
         data_intra = np.array(intra_ho_count)
         
-        # 2. Mirror the data across zero
-        mirrored_data_intra = np.concatenate([data_intra, -data_intra])
+        # 2. Fit KDE directly on the original data (NO MIRRORING)
+        kde_intra = gaussian_kde(data_intra)
         
-        # 3. Fit KDE on the mirrored data
-        kde_intra = gaussian_kde(mirrored_data_intra)
-        
-        # 4. Set up the X-axis (strictly starting at 0)
+        # 3. Set up the X-axis
         x_max_intra = max(data_intra)
         margin_intra = x_max_intra * 0.2
         kde_x_intra = np.linspace(0, x_max_intra + margin_intra, 500)
         
-        # 5. Evaluate and multiply by 2 to recover the spilled mass
-        kde_y_intra = kde_intra(kde_x_intra) * 2
+        # 4. Evaluate normally
+        kde_y_intra = kde_intra(kde_x_intra)
 
         ax.plot(kde_x_intra, kde_y_intra, color=colors1[0], linestyle='-', linewidth=1.5)
         ax.fill_between(kde_x_intra, kde_y_intra, alpha=0.2, color=colors1[0],
@@ -629,19 +621,16 @@ if(ho_handled):
         # 1. Convert to numpy array
         data_inter = np.array(inter_ho_count)
         
-        # 2. Mirror the data across zero
-        mirrored_data_inter = np.concatenate([data_inter, -data_inter])
-        
-        # 3. Fit KDE on the mirrored data
-        kde_inter = gaussian_kde(mirrored_data_inter)
+        # 3. Fit KDE 
+        kde_inter = gaussian_kde(data_inter)
         
         # 4. Set up the X-axis (strictly starting at 0)
         x_max_inter = max(data_inter)
         margin_inter = x_max_inter * 0.2
         kde_x_inter = np.linspace(0, x_max_inter + margin_inter, 500)
         
-        # 5. Evaluate and multiply by 2 to recover the spilled mass
-        kde_y_inter = kde_inter(kde_x_inter) * 2
+        # 5. Evaluate
+        kde_y_inter = kde_inter(kde_x_inter)
 
         ax.plot(kde_x_inter, kde_y_inter, color=colors1[1], linestyle='--', linewidth=1.5)
         ax.fill_between(kde_x_inter, kde_y_inter, alpha=0.1, color=colors1[1], # Lighter alpha
