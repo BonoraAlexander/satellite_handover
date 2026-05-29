@@ -33,7 +33,7 @@ get_throuthput_ho_v2 = True
 # 8. Number of ping-pong handovers
 ping_pong_handovers = True
 # 9. Doppler Shifts
-doppler_shifts = False
+doppler_shifts = True
 # 10. Max connected users per satellite
 max_users_per_satellite = True
 
@@ -221,67 +221,62 @@ if(average_handover_rate):
 
         # Base color for this cluster
         color = plt.cm.tab10(i)
-
-        # Dictionary to hold data for CSV saving later
-        csv_data = {}
         
-        # Check for enough data and variance to do a KDE
-        if len(intra_ho_count) > 1 and min(intra_ho_count) != max(intra_ho_count):
-            kde_intra = gaussian_kde(intra_ho_count)
-            x_min_intra, x_max_intra = min(intra_ho_count), max(intra_ho_count)
-            margin_intra = (x_max_intra - x_min_intra) * 0.2
-            kde_x_intra = np.linspace(x_min_intra - margin_intra, x_max_intra + margin_intra, 500)
-            kde_y_intra = kde_intra(kde_x_intra)
+        # Count the discrete frequencies of handovers
+        s_intra = pd.Series(intra_ho_count).value_counts().sort_index()
+        s_inter = pd.Series(inter_ho_count).value_counts().sort_index()
 
-            # Plot solid line for Intra
-            ax.plot(kde_x_intra, kde_y_intra, color=color, linestyle='-', linewidth=1.5)
-            ax.fill_between(kde_x_intra, kde_y_intra, alpha=0.2, color=color,
-                            label=f"Cluster {i+1}: {fname}, intra")
+        # Merge into a single dataframe to align the x-axis properly
+        df_counts = pd.DataFrame({
+            'intra_count': s_intra, 
+            'inter_count': s_inter
+        }).fillna(0).astype(int)
+        df_counts.index.name = 'num_of_handovers'
+        df_counts = df_counts.reset_index()
+
+        if not df_counts.empty:
+            x_vals = df_counts['num_of_handovers'].values
             
-            idx_max = np.argmax(kde_y_intra)
-            x_peak, y_peak = kde_x_intra[idx_max], kde_y_intra[idx_max]
-            ax.plot(x_peak, y_peak, marker='*', color=color, markersize=14, markeredgecolor='black', zorder=5)
-            ax.annotate(f'  {x_peak:.1f}', xy=(x_peak, y_peak), fontsize=8, color=color, va='bottom')
-
-            # Store for CSV
-            csv_data['intra_ho_x'] = kde_x_intra
-            csv_data['intra_ho_density'] = kde_y_intra
-        else:
-            print(f"Skipping KDE for Cluster {i+1} Intra HO due to lack of variance.")
-
-        if len(inter_ho_count) > 1 and min(inter_ho_count) != max(inter_ho_count):
-            kde_inter = gaussian_kde(inter_ho_count)
-            x_min_inter, x_max_inter = min(inter_ho_count), max(inter_ho_count)
-            margin_inter = (x_max_inter - x_min_inter) * 0.2
-            kde_x_inter = np.linspace(x_min_inter - margin_inter, x_max_inter + margin_inter, 500)
-            kde_y_inter = kde_inter(kde_x_inter)
-
-            # Plot dashed line for Inter to distinguish it
-            ax.plot(kde_x_inter, kde_y_inter, color=color, linestyle='--', linewidth=1.5)
-            ax.fill_between(kde_x_inter, kde_y_inter, alpha=0.1, color=color, # Lighter alpha
-                            label=f"Cluster {i+1}: {fname}, inter")
+            # Math to place bars side-by-side depending on the number of clusters
+            total_clusters = len(dfnames)
+            cluster_width = 0.8 / total_clusters
             
-            idx_max = np.argmax(kde_y_inter)
-            x_peak, y_peak = kde_x_inter[idx_max], kde_y_inter[idx_max]
-            ax.plot(x_peak, y_peak, marker='o', color=color, markersize=8, markeredgecolor='black', zorder=5)
-            ax.annotate(f'  {x_peak:.1f}', xy=(x_peak, y_peak), fontsize=8, color=color, va='bottom')
+            # Left edge of the cluster's group for each x value
+            cluster_left_edge = x_vals - 0.4 + (i * cluster_width)
+            
+            # Plot solid bar for Intra
+            ax.bar(cluster_left_edge + cluster_width * 0.25, df_counts['intra_count'], 
+                   width=cluster_width * 0.45, color=color, 
+                   label=f"Cluster {i+1}: {fname}, intra")
+            
+            # Plot hatched bar for Inter to distinguish it
+            ax.bar(cluster_left_edge + cluster_width * 0.75, df_counts['inter_count'], 
+                   width=cluster_width * 0.45, color=color, alpha=0.5, hatch='//', edgecolor='white',
+                   label=f"Cluster {i+1}: {fname}, inter")
 
-            # Store for CSV
-            csv_data['inter_ho_x'] = kde_x_inter
-            csv_data['inter_ho_density'] = kde_y_inter
+            # Annotate peak intra value (similar to previous KDE star mark)
+            if df_counts['intra_count'].max() > 0:
+                max_intra = df_counts['intra_count'].max()
+                peak_idx = df_counts['intra_count'].idxmax()
+                ax.annotate(f'{max_intra}', 
+                            xy=(cluster_left_edge[peak_idx] + cluster_width * 0.25, max_intra), 
+                            fontsize=8, color=color, va='bottom', ha='center')
+
+            # --- SAVE PLOT VALUES ---
+            if save_plot_values:
+                os.makedirs(os.path.join(output_folder, fname), exist_ok=True)
+                df_counts.to_csv(os.path.join(output_folder, fname, "2-handover.csv"), index=False)
         else:
-            print(f"Skipping KDE for Cluster {i+1} Inter HO due to lack of variance.")
+            print(f"Skipping Bar Plot for Cluster {i+1} due to lack of data.")
 
-        # --- SAVE PLOT VALUES ---
-        # We now save both intra and inter curves if they exist
-        if save_plot_values and csv_data:
-            os.makedirs(os.path.join(output_folder, fname), exist_ok=True)
-            kde_df = pd.DataFrame(dict([(k, pd.Series(v)) for k, v in csv_data.items()])) 
-            kde_df.to_csv(os.path.join(output_folder, fname, "2-handover.csv"), index=False)
-
-    ax.set_title(f'Probability Density of Handovers - All Clusters ({period} Period) - {num_ues_label} UEs')
+    # Update labels to match a discrete count/histogram style
+    ax.set_title(f'Frequency of Handovers - All Clusters ({period} Period) - {num_ues_label} UEs')
     ax.set_xlabel('Number of Handovers')
-    ax.set_ylabel('Probability Density')
+    ax.set_ylabel('Count (Number of UEs/Events)')
+    
+    # Ensure X-axis only shows integer ticks
+    ax.xaxis.get_major_locator().set_params(integer=True)
+    
     ax.grid(axis='y', alpha=0.3)
     ax.legend(title="Clusters", bbox_to_anchor=(1.05, 1), loc='upper left')
 
@@ -663,7 +658,7 @@ if(ho_handled):
     else:
         print(f"Skipping KDE for Inter HO due to lack of variance.")
 
-    # --- SAVE PLOT VALUES ---
+
     # We now save both intra and inter curves if they exist
     if save_plot_values and csv_data:
         os.makedirs(os.path.join(output_folder, fname), exist_ok=True)
@@ -886,10 +881,22 @@ if(doppler_shifts):
                 
             break # Only plot the first file for this cluster
 
+        if(save_plot_values):
+            os.makedirs(os.path.join(output_folder, fname), exist_ok=True)
+            df_export = pd.DataFrame({
+                'time': df['time'],
+                'doppler_shift_dl_KHz': df['doppler_shift_dl_KHz'],
+                'doppler_shift_ul_KHz': df['doppler_shift_ul_KHz'],
+                'ho_time': handovers['time'],
+                'ho_event': handovers['doppler_shift_ul_KHz']
+            })
+            csv_file_path = os.path.join(output_folder, fname, "9-Doppler Shifts.csv")
+            df_export.to_csv(csv_file_path, index=False)
+
     # Format the plot
     plt.xlabel('Time')
     plt.ylabel('Doppler Shift (KHz)')
-    plt.title('DL and UL Doppler Shifts over Time with Handover Events')
+    plt.title('DL and UL Doppler Shifts over Time with Handover Events for a Random UE')
     plt.gca().xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
     plt.legend()
     plt.grid(True, linestyle='--', alpha=0.7)
@@ -920,7 +927,7 @@ if(doppler_shifts):
     plt.plot(df_sat['time'], df_sat['doppler_shift_ul_KHz'], label='UL', color='#ff7f0e', linewidth=2)
 
     plt.xlabel('Time')
-    plt.ylabel('Doppler Shi        # --- SAVE PLOT VALUES ---ft (KHz)')
+    plt.ylabel('Doppler Shift (KHz)')
     plt.title(f'DL and UL Doppler Shifts (Connection to {chosen_sat})')
     plt.gca().xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
     plt.legend()
