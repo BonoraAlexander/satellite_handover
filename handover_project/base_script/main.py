@@ -35,6 +35,7 @@ sat_selection_condition_1 = "A3"
 # ("ELEVATION", elev_threshold): if the elevation angle goes under certain thresholds then handover to a new satellite
 # ("TIMER", handover_timer): if not already triggered, handover to a new satellite after handover_timer seconds
 # ("VISIBILITY"): standard approach, no input needed, handover when satellite goes out of visibility
+# ("A3", a3_event_snr_threshold): 3GPP Event-A3: monitor neighbouring cells, handover if one becomes better by a3_event_snr_threshold dB
 
 ###############################################
 ########### sat_selection_condition ###########
@@ -43,6 +44,7 @@ sat_selection_condition_1 = "A3"
 # "MAX_ELEVATION": the satellite with the highest elevation angle from the current time instant
 # "MAX_VISIBILITY": the satellite with the longer visibility window from the current time instant
 # "AVL_THR": the satellite with the highest available throughput is selected as target satellite
+# "A3": the only possible sat selection when using A3 as ho condition.
 
 
 
