@@ -25,8 +25,15 @@ scenario = utils.sc9_parameters
 handover_timer = 40
 a3_event_snr_threshold = 2 # dB
 
-ho_condition_1 = ("A3", a3_event_snr_threshold)
-sat_selection_condition_1 = "A3"
+ho_condition_1 = ("VISIBILITY")
+sat_selection_condition_1 = "RANDOM"
+
+# RL parameters
+w1 = 1 # capacity weight
+w2 = 0 # load weight
+w3 = 0 # delay weight
+enable_rl_algorithm =  False # if True, use RL algorithm for target satellite selection for HO
+rl_parameters = (w1, w2, w3, enable_rl_algorithm)
 
 ####################################
 ########### ho_condition ###########
@@ -64,7 +71,7 @@ servers = args.servers
 num_ues = args.num_ues
 
 # (name, position, num_ues, satellites_frame, threshold_snr, satellite servers, satellite mu)
-cluster1 = Cluster("Cluster1", (45.40996, 11.89261, 0), num_ues, beam_size_km, num_beams, data_frame_1, servers, mu_inter, mu_intra, scenario, enable_elevation_threshold, elevation_threshold)
+cluster1 = Cluster("Cluster1", (45.40996, 11.89261, 0), num_ues, beam_size_km, num_beams, data_frame_1, servers, mu_inter, mu_intra, scenario, enable_elevation_threshold, elevation_threshold, rl_parameters)
 clusters = [cluster1] 
 
 # (# year, month, day, hour, minute, second)

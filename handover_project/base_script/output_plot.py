@@ -33,7 +33,7 @@ get_throuthput_ho_v2 = True
 # 8. Number of ping-pong handovers
 ping_pong_handovers = True
 # 9. Doppler Shifts
-doppler_shifts = True
+doppler_shifts = False
 # 10. Max connected users per satellite
 max_users_per_satellite = True
 

@@ -7,9 +7,10 @@ import handover_strategies as strategies
 import random
 from satellite import Satellite
 import numpy as np
+import math
 
 class Cluster:
-    def __init__(self, name, position, num_ues, beam_size_km, num_beams, satellites_frame, servers, mu_inter, mu_intra, scenario, enable_elevation = False, elevation_threshold = 0):
+    def __init__(self, name, position, num_ues, beam_size_km, num_beams, satellites_frame, servers, mu_inter, mu_intra, scenario, enable_elevation = False, elevation_threshold = 0, rl_parameters = (0, 0, 0, False)):
         self.name = name
         self.position = position
         self.num_ues = num_ues
@@ -22,6 +23,10 @@ class Cluster:
         self.sat_mu_inter = mu_inter
         self.sat_mu_intra = mu_intra
         self.scenario = scenario # stores the struct containing the parameters characterizing the scenario (e.g.: frequency, EIRP, etc) from the utils class.
+        self.w1 = rl_parameters[0]
+        self.w2 = rl_parameters[1]
+        self.w3 = rl_parameters[2]
+        self.enable_rl_algorithm = rl_parameters[3]
 
         # beams computation
         self.positions = self.calculate_beams_grid(self.position[0], self.position[1], self.beam_size_km, self.num_beams)
@@ -172,6 +177,10 @@ class Cluster:
             target_time_str = str(round_time)
         curr_time_df =self.df_satellites_positions[self.df_satellites_positions['time'].astype(str) == target_time_str].copy()
 
+
+        # all the UEs who want to perform handover
+        ho_ues = []
+
         # check if each UE needs to perform an intra or an inter handover based on the handover condition.
         for mini_cluster in self.list_beams:
             for ue in mini_cluster.list_ues:
@@ -252,41 +261,126 @@ class Cluster:
                 # print(f"\tnext_beam_index: {next_beam_index}")
 
 
-                # ============== Performe the handover (if selected) ==============
-                if(ue.inter_handover_flag): # handover to a new beam of a new satellite
 
-                    # possible satellites beams towards which the ue could handover
-                    choices = len(visible_sats_for_each_minicluster[mini_cluster.index])
-                    # if no one, the ue goes out of service
-                    if(choices == 0):
-                        ue.time_to_next_handover = 0 # reset the time to next handover in case of fixed timer handover condition
-                    # if there is at least one, select a random one among them and handover
-                    elif(sat_selection_condition == "RANDOM"):
-                        next_sat, next_beam_index = strategies.get_random_visible_satellite(visible_sats_for_each_minicluster[mini_cluster.index])
-                    elif(sat_selection_condition == "MAX_ELEVATION"):
-                        next_sat, next_beam_index = strategies.get_max_elevation_satellite(visible_sats_for_each_minicluster[mini_cluster.index], curr_time_df, round_time, mini_cluster)
-                    elif(sat_selection_condition == "MAX_VISIBILITY"):
-                        next_sat, next_beam_index = strategies.get_max_visibility_satellite(visible_sats_for_each_minicluster[mini_cluster.index], curr_time_df, round_time)
-                    elif(sat_selection_condition == "AVL_THR"):
-                        next_sat, next_beam_index = strategies.get_max_available_throughput_satellite(visible_sats_for_each_minicluster[mini_cluster.index], round_time, mini_cluster, service_sats, self.df_satellites_positions, self.scenario)
-                    elif(sat_selection_condition == "A3"):
-                        pass # since the next satellite informations are filled by the trigger event function, there is no need to do anything here.
-                    if(next_sat is not None):
-                        selected_sat_name = next_sat[0]
-                        if selected_sat_name not in service_sats:
-                            sat = Satellite(selected_sat_name, self.sat_servers, self.sat_mu_inter, self.sat_mu_intra, self.num_beams)
-                            service_sats[selected_sat_name] = sat
-                        next_sat = service_sats[selected_sat_name]
-                        if(ho_condition[0] == "TIMER"):
-                            ue.time_to_next_handover = ho_condition[1] -1 # reset the time to next handover in case of fixed timer handover condition
-                    # if there is at least one, select the less busy satellite which could guarantee the higer thorughput
-                    # handover to the selected sat (if no one, go out of service)
-                    ue.inter_handover(time, next_sat, next_beam_index)
+                ###################### RL HO ######################
+
+                if(self.enable_rl_algorithm):
+                    # if an intra or inter handover is needed, this is the time to train our RL algorithm
+                    if(ue.intra_handover_flag or ue.inter_handover_flag):
+                        # visible_sats_for_each_minicluster[mini_cluster.index] is a list containing (sat, idx_sat_beam) for each visible satellite of the mini-cluster
+                        # sat is a tuple containing (sat_name, sat_lat, sat_lon, sat_alt, occurence_count_down)
+                        states = []
+                        for iii in visible_sats_for_each_minicluster[mini_cluster.index]:
+                            sat_name, sat_lat, sat_lon, sat_alt, occurence_countdown = iii[0]
+                            beam_index = iii[1]
+                            distance_m = utils.compute_distance_m(sat_lat, sat_lon, sat_alt, mini_cluster.position[0], mini_cluster.position[1], 0)
+                            snr_dl_db, _ = utils.compute_snr(distance_m, self.scenario)
+                            # load is the number of UEs already connected to that beam of that satellite
+                            load = 0
+                            if(sat_name in service_sats):
+                                load = service_sats[sat_name].connected_ues[beam_index] 
+                            # if the current satellite is the same as the one we are considering (intra handover)
+                            intra_flag = False
+                            current_sat_name = ue.connected_to.name
+                            if(current_sat_name == sat_name):
+                                intra_flag = True
+                            candidate_sat = iii[0]
+                            # sat_info is composed as follow ( (sat_name, sat_lat, sat_lon, sat_alt, occurence_countdown) , beam_index, snr_dl_db )
+                            sat_info = (candidate_sat, beam_index, snr_dl_db)
+                            states.append((sat_info, snr_dl_db, load, intra_flag, occurence_countdown))
+
                 
-                elif(ue.intra_handover_flag): # handover to a new visible beam of the same satellite
-                    next_sat = curr_sat
-                    next_beam_index = visible_sats_for_each_minicluster[mini_cluster.index][index][1]
-                    ue.intra_handover(time, next_sat, next_beam_index)
+                        # RL target satellite selection
+                        
+                        sat_info = rl_algorithm_selection(ue.id, states)
+
+
+                        next_sat, next_beam_index = sat_info[0], sat_info[1]
+                        # this UE wants to be a sonar 
+                        ho_ues.append((ue, sat_info))
+
+                        # if the next satellite is new then save it in the service_sats dictionary
+                        # after that, perform the handover to the selected satellite and beam index
+                        if(next_sat is not None):
+                            selected_sat_name = next_sat[0]
+                            if selected_sat_name not in service_sats:
+                                sat = Satellite(selected_sat_name, self.sat_servers, self.sat_mu_inter, self.sat_mu_intra, self.num_beams)
+                                service_sats[selected_sat_name] = sat
+                            next_sat = service_sats[selected_sat_name]
+                            if(ho_condition[0] == "TIMER"):
+                                ue.time_to_next_handover = ho_condition[1] -1 # reset the time to next handover in case of fixed timer handover condition
+                        if(ue.connected_to.name == selected_sat_name):
+                            ue.intra_handover(time, next_sat, next_beam_index)
+                        else:
+                            ue.inter_handover(time, next_sat, next_beam_index)
+
+                ################################################
+
+                ###################### CLASSIC HO ######################
+                else:
+                    # ============== Performe the handover (if selected) ==============
+                    if(ue.inter_handover_flag): # handover to a new beam of a new satellite
+
+                        # possible satellites beams towards which the ue could handover
+                        choices = len(visible_sats_for_each_minicluster[mini_cluster.index])
+                        # if no one, the ue goes out of service
+                        if(choices == 0):
+                            ue.time_to_next_handover = 0 # reset the time to next handover in case of fixed timer handover condition
+                        # if there is at least one, select a random one among them and handover
+                        elif(sat_selection_condition == "RANDOM"):
+                            next_sat, next_beam_index = strategies.get_random_visible_satellite(visible_sats_for_each_minicluster[mini_cluster.index])
+                        elif(sat_selection_condition == "MAX_ELEVATION"):
+                            next_sat, next_beam_index = strategies.get_max_elevation_satellite(visible_sats_for_each_minicluster[mini_cluster.index], curr_time_df, round_time, mini_cluster)
+                        elif(sat_selection_condition == "MAX_VISIBILITY"):
+                            next_sat, next_beam_index = strategies.get_max_visibility_satellite(visible_sats_for_each_minicluster[mini_cluster.index], curr_time_df, round_time)
+                        elif(sat_selection_condition == "AVL_THR"):
+                            next_sat, next_beam_index = strategies.get_max_available_throughput_satellite(visible_sats_for_each_minicluster[mini_cluster.index], round_time, mini_cluster, service_sats, self.df_satellites_positions, self.scenario)
+                        elif(sat_selection_condition == "A3"):
+                            pass # since the next satellite informations are filled by the trigger event function, there is no need to do anything here.
+                        if(next_sat is not None):
+                            selected_sat_name = next_sat[0]
+                            if selected_sat_name not in service_sats:
+                                sat = Satellite(selected_sat_name, self.sat_servers, self.sat_mu_inter, self.sat_mu_intra, self.num_beams)
+                                service_sats[selected_sat_name] = sat
+                            next_sat = service_sats[selected_sat_name]
+                            if(ho_condition[0] == "TIMER"):
+                                ue.time_to_next_handover = ho_condition[1] -1 # reset the time to next handover in case of fixed timer handover condition
+                        # if there is at least one, select the less busy satellite which could guarantee the higer thorughput
+                        # handover to the selected sat (if no one, go out of service)
+                        ue.inter_handover(time, next_sat, next_beam_index)
+                    
+                    elif(ue.intra_handover_flag): # handover to a new visible beam of the same satellite
+                        next_sat = curr_sat
+                        next_beam_index = visible_sats_for_each_minicluster[mini_cluster.index][index][1]
+                        ue.intra_handover(time, next_sat, next_beam_index)
+
+                ################################################
+
+        # RL rewards computation
+        if(self.enable_rl_algorithm):
+            rewards = []
+            for user, sat_info in ho_ues:
+                ue_id = user.id
+                current_sat_name = sat_info[0][0]
+                current_beam_index = sat_info[1]
+                snr_dl_db = sat_info[2]
+                # check to be sure everything is correct
+                if(current_sat_name != user.connected_to.name or current_beam_index != user.connected_to_beam):
+                    print(f"ERROR: {current_sat_name} != {user.connected_to.name} or {current_beam_index} != {user.connected_to_beam}")
+                current_sat = service_sats[current_sat_name]
+                load = current_sat.connected_ues[current_beam_index]
+                delay = user.remaining_handover_execution_time
+
+                snr_max = 24 # according to the scenario
+                load_max = 100 # number of UEs connected to the same beam of the same satellite
+                max_delay = 1000 # ms
+                capacity_factor = min(1, math.log2(1 + 10**(snr_dl_db/10)) / math.log2(1 + 10**(snr_max/10))) 
+                load_factor = min(1, (load-1) / (load_max))
+                delay_factor = min(1, delay / max_delay)
+                reward = self.w1 * capacity_factor - self.w2 * load_factor - self.w3 * delay_factor
+
+                rewards.append((ue_id, reward))
+            rl_rewards(rewards)
 
         self.save_instant_throughput(time)
 
