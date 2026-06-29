@@ -769,33 +769,50 @@ if(out_of_service):
 # 7 Get the throughput considering the handover outage time (v2)
 if(get_throuthput_ho_v2):
     print("7. Plotting the average throughput considering the handover outage time ...")
-
     fig, ax = plt.subplots(figsize=(12, 6))
-
     for i, (df_name, fname) in enumerate(zip(dfnames, fnames)):
         folder_path = Path("Cluster" + str(i+1) + " throughput")
         ues_thr = []
-
         for file_path in folder_path.glob('*.csv'):
             df = pd.read_csv(file_path)
             thr = df['dl_thr'].tolist()
             ues_thr.append(thr)
-
         min_len = min(len(t) for t in ues_thr)
         ues_thr = [t[:min_len] for t in ues_thr]
 
         avg_thr = np.mean(ues_thr, axis=0).tolist()
+        std_thr = np.std(ues_thr, axis=0).tolist()      # std dev = sqrt(variance)
+        var_thr = np.var(ues_thr, axis=0).tolist()      # raw variance, for export
+
+        thr_upper = np.array(avg_thr) + np.array(std_thr)
+        thr_lower = np.array(avg_thr) - np.array(std_thr)
+
         time_vector = pd.date_range(start=simTimeStart, periods=len(avg_thr), freq='1s')
         color = plt.cm.tab10(i)
 
         ax.plot(time_vector, avg_thr, label=f"Cluster {i+1}: {fname}", color=color)
+        ax.fill_between(
+            time_vector,
+            thr_lower,
+            thr_upper,
+            alpha=0.2,
+            color=color,
+            label=f"Cluster {i+1} ±1 std"
+        )
+
         print(f"{fname} avg thr: ", np.mean(avg_thr))
+        print(f"{fname} avg variance: ", np.mean(var_thr))
+
         if(save_plot_values):
             os.makedirs(os.path.join(output_folder, fname), exist_ok=True)
             df_export = pd.DataFrame({
-                'Seconds': range(len(avg_thr)),
+                'Seconds':   range(len(avg_thr)),
                 'Timestamp': time_vector,
-                'Cluster_Thr': avg_thr
+                'Cluster_Thr': avg_thr,
+                'Cluster_Std': std_thr,
+                'Cluster_Var': var_thr,
+                'Thr_Upper':   thr_upper.tolist(),
+                'Thr_Lower':   thr_lower.tolist()
             })
             csv_file_path = os.path.join(output_folder, fname, "7-DL_throughput_ho_values.csv")
             df_export.to_csv(csv_file_path, index=False)
@@ -806,7 +823,6 @@ if(get_throuthput_ho_v2):
     ax.grid(True)
     ax.legend(title="Clusters", bbox_to_anchor=(1.05, 1), loc='upper left')
     ax.xaxis.set_major_formatter(mdates.DateFormatter('%M:%S'))
-
     os.makedirs(output_folder, exist_ok=True)
     combined_file_path = os.path.join(output_folder, "7-DL_throughput_ho.png")
     fig.savefig(combined_file_path, dpi=300, bbox_inches='tight')
@@ -828,8 +844,10 @@ if(ping_pong_handovers):
         for r1, r2 in zip(df.itertuples(), df.iloc[1:].itertuples()):
             ev1 = r1.from_satellite
             ev2 = r2.dest_satellite
+            beam1 = r1.from_beam_index
+            beam2 = r2.dest_beam_index
             
-            if ev1 == ev2:
+            if ev1 == ev2 and beam1 == beam2:
                 count += 1
         ping_pong_count.append(count)
         num_ues += 1
