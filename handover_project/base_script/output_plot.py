@@ -53,10 +53,10 @@ elevation_threshold = 30
 
 # simulation parameters
 output_folder = "plots"
-period = '20 min'
+period = '60 min'
 num_ues_label = 100
 simTimeStart = datetime(2026, 2, 19, 0, 0, 0) 
-simTimeEnd = datetime(2026, 2, 19, 0, 20, 0) 
+simTimeEnd = datetime(2026, 2, 19, 1, 0, 0) 
 time_step = timedelta(seconds=1)
 num_ues_to_plot = 1
 

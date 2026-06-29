@@ -8,6 +8,7 @@ import random
 from satellite import Satellite
 import numpy as np
 import math
+import rl_agent
 
 class Cluster:
     def __init__(self, name, position, num_ues, beam_size_km, num_beams, satellites_frame, servers, mu_inter, mu_intra, scenario, enable_elevation = False, elevation_threshold = 0, rl_parameters = (0, 0, 0, False)):
@@ -31,6 +32,8 @@ class Cluster:
         # beams computation
         self.positions = self.calculate_beams_grid(self.position[0], self.position[1], self.beam_size_km, self.num_beams)
         self.list_beams = [Beam(self.name + "-Beam" + str(ii+1), ii, self.positions[ii], int(num_ues/num_beams), self.beam_size_km, int(np.sqrt(num_beams)), servers, mu_inter, mu_intra) for ii in range(self.num_beams)]
+
+        self.rl_agent = rl_agent.RLAgent() if self.enable_rl_algorithm else None
 
     # in order to compute the position of the beams, we assume that they are arranged in a grid centered on the cluster position, 
     # and that the distance between adjacent beams is equal to the beam size. We then compute the latitude and longitude of each 
@@ -270,6 +273,7 @@ class Cluster:
                         # visible_sats_for_each_minicluster[mini_cluster.index] is a list containing (sat, idx_sat_beam) for each visible satellite of the mini-cluster
                         # sat is a tuple containing (sat_name, sat_lat, sat_lon, sat_alt, occurence_count_down)
                         states = []
+                        sat_infos = []
                         for iii in visible_sats_for_each_minicluster[mini_cluster.index]:
                             sat_name, sat_lat, sat_lon, sat_alt, occurence_countdown = iii[0]
                             beam_index = iii[1]
@@ -280,24 +284,31 @@ class Cluster:
                             if(sat_name in service_sats):
                                 load = service_sats[sat_name].connected_ues[beam_index] 
                             # if the current satellite is the same as the one we are considering (intra handover)
-                            intra_flag = False
-                            current_sat_name = ue.connected_to.name
+                            intra_flag = 0
+                            current_sat_name = "ULISSE"
+                            if(ue.connected_to is not None):
+                                current_sat_name = ue.connected_to.name
                             if(current_sat_name == sat_name):
-                                intra_flag = True
+                                intra_flag = 1
                             candidate_sat = iii[0]
                             # sat_info is composed as follow ( (sat_name, sat_lat, sat_lon, sat_alt, occurence_countdown) , beam_index, snr_dl_db )
-                            sat_info = (candidate_sat, beam_index, snr_dl_db)
-                            states.append((sat_info, snr_dl_db, load, intra_flag, occurence_countdown))
+                            sat_infos.append((candidate_sat, beam_index, snr_dl_db))
+                            states.append((snr_dl_db, load, intra_flag, occurence_countdown))
 
-                
                         # RL target satellite selection
                         
-                        sat_info = rl_algorithm_selection(ue.id, states)
+                        if sat_infos:
+                            sat_info = self.rl_agent.rl_algorithm_selection(ue.id, sat_infos, states)
+                            next_sat, next_beam_index = sat_info[0], sat_info[1]
+                            # this UE wants to be a sonar 
+                            ho_ues.append((ue, sat_info))
 
-
-                        next_sat, next_beam_index = sat_info[0], sat_info[1]
-                        # this UE wants to be a sonar 
-                        ho_ues.append((ue, sat_info))
+                        else:
+                            next_sat, next_beam_index = None, None
+                        
+                        selected_sat_name = "xxx"
+                        if(next_sat is not None):
+                            selected_sat_name = next_sat[0]
 
                         # if the next satellite is new then save it in the service_sats dictionary
                         # after that, perform the handover to the selected satellite and beam index
@@ -309,7 +320,7 @@ class Cluster:
                             next_sat = service_sats[selected_sat_name]
                             if(ho_condition[0] == "TIMER"):
                                 ue.time_to_next_handover = ho_condition[1] -1 # reset the time to next handover in case of fixed timer handover condition
-                        if(ue.connected_to.name == selected_sat_name):
+                        if(ue.connected_to is not None and (ue.connected_to.name == selected_sat_name)):
                             ue.intra_handover(time, next_sat, next_beam_index)
                         else:
                             ue.inter_handover(time, next_sat, next_beam_index)
@@ -361,6 +372,9 @@ class Cluster:
             rewards = []
             for user, sat_info in ho_ues:
                 ue_id = user.id
+                if sat_info[0] is None:
+                    rewards.append((ue_id, -10))
+                    continue
                 current_sat_name = sat_info[0][0]
                 current_beam_index = sat_info[1]
                 snr_dl_db = sat_info[2]
@@ -380,7 +394,8 @@ class Cluster:
                 reward = self.w1 * capacity_factor - self.w2 * load_factor - self.w3 * delay_factor
 
                 rewards.append((ue_id, reward))
-            rl_rewards(rewards)
+            if rewards:
+                self.rl_agent.rl_rewards(rewards)
 
         self.save_instant_throughput(time)
 

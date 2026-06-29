@@ -16,7 +16,7 @@ enable_elevation_threshold = True
 elevation_threshold = 30
 enable_doppler_computation = False
 
-simTime = timedelta(minutes=20)
+simTime = timedelta(minutes=60)
 num_ues = 100
 mu_inter = 30 * 1e-3
 mu_intra = 1 * 1e-3 
@@ -30,9 +30,9 @@ sat_selection_condition_1 = "RANDOM"
 
 # RL parameters
 w1 = 1 # capacity weight
-w2 = 0 # load weight
+w2 = 1 # load weight
 w3 = 0 # delay weight
-enable_rl_algorithm =  False # if True, use RL algorithm for target satellite selection for HO
+enable_rl_algorithm =  True # if True, use RL algorithm for target satellite selection for HO
 rl_parameters = (w1, w2, w3, enable_rl_algorithm)
 
 ####################################
