@@ -828,8 +828,10 @@ if(ping_pong_handovers):
         for r1, r2 in zip(df.itertuples(), df.iloc[1:].itertuples()):
             ev1 = r1.from_satellite
             ev2 = r2.dest_satellite
+            beam1 = r1.from_beam_index
+            beam2 = r2.dest_beam_index
             
-            if ev1 == ev2:
+            if ev1 == ev2 and beam1 == beam2:
                 count += 1
         ping_pong_count.append(count)
         num_ues += 1
