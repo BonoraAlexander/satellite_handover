@@ -58,7 +58,7 @@ sc6_parameters = {
     'dlul_snr_variance' : 1, # variance of the noise added to the UE snr measurement to simulate real-world measurement imperfections
     '3gpp_overhead_dl': 0.18, # additional percentage of overhead as specified by 3GPP TS 38.306
     '3gpp_overhead_ul': 0.1,
-    'frequency_reuse_factor': 1 # divide the total available bandwidth by this factor
+    'frequency_reuse_factor': 3 # divide the total available bandwidth by this factor
 }
 
 sc9_parameters = {
@@ -76,7 +76,7 @@ sc9_parameters = {
     'dlul_snr_variance' : 1, # variance of the noise added to the UE snr measurement to simulate real-world measurement imperfections
     '3gpp_overhead_dl': 0.14, # additional percentage of overhead as specified by 3GPP TS 38.306
     '3gpp_overhead_ul': 0.08,
-    'frequency_reuse_factor': 1 # divide the total available bandwidth by this factor
+    'frequency_reuse_factor': 3 # divide the total available bandwidth by this factor
 }
 
 def get_satellites_at_time(df, target_time):
