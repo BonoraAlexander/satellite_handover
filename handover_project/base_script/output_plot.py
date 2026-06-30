@@ -966,13 +966,14 @@ if(max_users_per_satellite):
             
             # Ensure the list isn't completely empty before trying to find the max
             if total_users_per_time:
-                max_users_counts.append(max(total_users_per_time))
+                percentage_of_connected_users = round(max(total_users_per_time) / num_ues_label * 100, 2)
+                max_users_counts.append(percentage_of_connected_users)
                 num_sats += 1
             
         except Exception as e:
             # We print the error now instead of using 'pass' so nothing is hidden
             print(f"File {file_path.name} failed with error: {repr(e)}")
-
+    # max_users_counts.sort(reverse=True)
     print(f"Successfully processed {num_sats} satellites.")
     fig, ax = plt.subplots(figsize=(12, 6))
 
@@ -980,6 +981,20 @@ if(max_users_per_satellite):
 
     ax.bar(range(0, num_sats), max_users_counts, color=colors1[0])
     # Store for CSV
+    if len(max_users_counts) > 1 and min(max_users_counts) != max(max_users_counts):
+        kde_out = gaussian_kde(max_users_counts)
+        x_min_out, x_max_out = min(max_users_counts), max(max_users_counts)
+        margin_out = (x_max_out - x_min_out) * 0.2
+        kde_x_out = np.linspace(x_min_out - margin_out, x_max_out + margin_out, 500)
+        kde_y_out = kde_out(kde_x_out)
+        df_kde = pd.DataFrame({
+                'kde_users_x': kde_x_out,
+                'kde_users_density': kde_y_out
+            })
+        os.makedirs(output_folder, exist_ok=True)
+        csv_file_path = os.path.join(output_folder, fname, "10-kde_users_sat.csv")
+        df_kde.to_csv(csv_file_path, index=False)
+
     df_export = pd.DataFrame({
                 'sat_id': range(0, num_sats),
                 'max_conn_users': max_users_counts
