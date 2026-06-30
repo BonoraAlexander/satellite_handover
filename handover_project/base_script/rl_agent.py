@@ -223,6 +223,30 @@ class PPO:
         # clear buffer
         self.buffer.clear()
 
+    def save(self, path):
+
+        os.makedirs(os.path.dirname(path) if os.path.dirname(path) else ".", exist_ok=True)
+ 
+        checkpoint = {
+            "policy_state_dict":     self.policy.state_dict(),
+            "policy_old_state_dict": self.policy_old.state_dict(),
+            "optimizer_state_dict":  self.optimizer.state_dict(),
+        }
+        torch.save(checkpoint, path)
+ 
+    def load(self, path):
+        checkpoint = torch.load(path, map_location=self.device)
+ 
+        self.policy.load_state_dict(checkpoint["policy_state_dict"])
+        self.policy_old.load_state_dict(checkpoint["policy_old_state_dict"])
+        self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+ 
+        for state in self.optimizer.state.values():
+            for k, v in state.items():
+                if isinstance(v, torch.Tensor):
+                    state[k] = v.to(self.device)
+ 
+
 
 class RLAgent:
     def __init__(self):
@@ -234,7 +258,8 @@ class RLAgent:
         hidden_neurons = 128
         
         self.max_vis_sat = 20
-        state_dim = self.max_vis_sat * 4
+        self.num_features = 2
+        state_dim = self.max_vis_sat * self.num_features
         self.ppo = PPO(state_dim, self.max_vis_sat, hidden_neurons, lr_actor, lr_critic, gamma, K_epochs, eps_clip)
         self.counter = 1
         self.ue_ids = []
@@ -247,7 +272,7 @@ class RLAgent:
         # Pad the states to have a fixed size of max_vis_sat
         if len(states) < self.max_vis_sat:
             for _ in range(self.max_vis_sat - len(states)):
-                states.append([0, 0, 0, 0])
+                states.append([0]*self.num_features)
         
         states = np.asarray(states).reshape(1, -1)
         self.states.append(states)
@@ -275,7 +300,6 @@ class RLAgent:
             self.counter += 1
 
         log = pd.DataFrame([{
-            'learning_step': self.ppo.learning_steps,
             'actions': self.actions,
             'reward': mean(self.rewards),
         }])
@@ -289,4 +313,13 @@ class RLAgent:
 
         
         return
+    
+    def save_model(self, path = "checkpoints/agent.pt"):
+        self.ppo.save(path)
+
+    def load_model(self, path = "checkpoints/agent.pt"):
+        if not os.path.isfile(path):
+            return None
+        self.ppo.load(path)
+
 

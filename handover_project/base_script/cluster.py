@@ -34,6 +34,7 @@ class Cluster:
         self.list_beams = [Beam(self.name + "-Beam" + str(ii+1), ii, self.positions[ii], int(num_ues/num_beams), self.beam_size_km, int(np.sqrt(num_beams)), servers, mu_inter, mu_intra) for ii in range(self.num_beams)]
 
         self.rl_agent = rl_agent.RLAgent() if self.enable_rl_algorithm else None
+        self.rl_agent = self.rl_agent.load_model() if self.rl_agent.load_model() is not None else self.rl_agent
 
     # in order to compute the position of the beams, we assume that they are arranged in a grid centered on the cluster position, 
     # and that the distance between adjacent beams is equal to the beam size. We then compute the latitude and longitude of each 
@@ -184,6 +185,10 @@ class Cluster:
         # all the UEs who want to perform handover
         ho_ues = []
 
+        # # make a screenshot of the current load for all the serving satellite
+        # for satellite in service_sats:
+        #     service_sats[satellite].connected_ues_screenshot = service_sats[satellite].connected_ues.copy()
+
         # check if each UE needs to perform an intra or an inter handover based on the handover condition.
         for mini_cluster in self.list_beams:
             for ue in mini_cluster.list_ues:
@@ -269,7 +274,7 @@ class Cluster:
 
                 if(self.enable_rl_algorithm):
                     # if an intra or inter handover is needed, this is the time to train our RL algorithm
-                    if(ue.intra_handover_flag or ue.inter_handover_flag):
+                    if(ue.inter_handover_flag):
                         # visible_sats_for_each_minicluster[mini_cluster.index] is a list containing (sat, idx_sat_beam) for each visible satellite of the mini-cluster
                         # sat is a tuple containing (sat_name, sat_lat, sat_lon, sat_alt, occurence_count_down)
                         states = []
@@ -293,7 +298,12 @@ class Cluster:
                             candidate_sat = iii[0]
                             # sat_info is composed as follow ( (sat_name, sat_lat, sat_lon, sat_alt, occurence_countdown) , beam_index, snr_dl_db )
                             sat_infos.append((candidate_sat, beam_index, snr_dl_db))
-                            states.append((snr_dl_db, load, intra_flag, occurence_countdown))
+                            # connected_to = ue.connected_to
+                            # connected_to_beam = ue.connected_to_beam
+                            # curr_sat_load = 0
+                            # if connected_to is not None:
+                            #     curr_sat_load = service_sats[connected_to.name].connected_ues_screenshot[connected_to_beam]
+                            states.append((snr_dl_db, load))
 
                         # RL target satellite selection
                         
@@ -324,6 +334,10 @@ class Cluster:
                             ue.intra_handover(time, next_sat, next_beam_index)
                         else:
                             ue.inter_handover(time, next_sat, next_beam_index)
+                    elif ue.intra_handover_flag:
+                        next_sat = curr_sat
+                        next_beam_index = visible_sats_for_each_minicluster[mini_cluster.index][index][1]
+                        ue.intra_handover(time, next_sat, next_beam_index)
 
                 ################################################
 
@@ -373,7 +387,7 @@ class Cluster:
             for user, sat_info in ho_ues:
                 ue_id = user.id
                 if sat_info[0] is None:
-                    rewards.append((ue_id, -10))
+                    rewards.append((ue_id, 0))
                     continue
                 current_sat_name = sat_info[0][0]
                 current_beam_index = sat_info[1]
@@ -382,16 +396,38 @@ class Cluster:
                 if(current_sat_name != user.connected_to.name or current_beam_index != user.connected_to_beam):
                     print(f"ERROR: {current_sat_name} != {user.connected_to.name} or {current_beam_index} != {user.connected_to_beam}")
                 current_sat = service_sats[current_sat_name]
-                load = current_sat.connected_ues[current_beam_index]
-                delay = user.remaining_handover_execution_time
 
-                snr_max = 24 # according to the scenario
-                load_max = 100 # number of UEs connected to the same beam of the same satellite
-                max_delay = 1000 # ms
-                capacity_factor = min(1, math.log2(1 + 10**(snr_dl_db/10)) / math.log2(1 + 10**(snr_max/10))) 
-                load_factor = min(1, (load-1) / (load_max))
-                delay_factor = min(1, delay / max_delay)
-                reward = self.w1 * capacity_factor - self.w2 * load_factor - self.w3 * delay_factor
+                # REWARD FUNCTION V1
+                # load = current_sat.connected_ues[current_beam_index]
+                # delay = user.remaining_handover_execution_time
+
+                # snr_max = 24 # according to the scenario
+                # load_max = 100 # number of UEs connected to the same beam of the same satellite
+                # max_delay = 1000 # ms
+                # capacity_factor = min(1, math.log2(1 + 10**(snr_dl_db/10)) / math.log2(1 + 10**(snr_max/10))) 
+                # load_factor = min(1, (load-1) / (load_max))
+                # delay_factor = min(1, delay / max_delay)
+                # reward = self.w1 * capacity_factor - self.w2 * load_factor - self.w3 * delay_factor
+
+                # REWARD FUNCTION V2
+                max_dl_thr, max_ul_thr = utils.get_max_beam_throughput(self.df_satellites_positions, time, current_sat_name, (ue.lat, ue.lon, ue.alt), self.scenario)
+                load = current_sat.connected_ues[current_beam_index]
+                dl_ue_throughput = max_dl_thr / load
+                ul_ue_throughput = max_ul_thr / load
+                equivalent_snr_dl_db, equivalent_snr_ul_db = utils.reverse_snr_from_thr(dl_ue_throughput, ul_ue_throughput, self.scenario)
+                equivalent_snr_dl_db -= self.scenario['dl_db_headroom']
+                equivalent_snr_ul_db -= self.scenario['ul_db_headroom']
+                dl_ue_throughput, ul_ue_throughput = utils.compute_shannon_from_snr(equivalent_snr_dl_db, equivalent_snr_ul_db, self.scenario)
+                if(ue.remaining_handover_execution_time >= 1000):
+                    dl_ue_throughput = 0
+                    ul_ue_throughput = 0
+                elif(ue.remaining_handover_execution_time > 0):
+                    dl_ue_throughput = dl_ue_throughput * (1 - ue.remaining_handover_execution_time/1000)
+                    ul_ue_throughput = ul_ue_throughput * (1 - ue.remaining_handover_execution_time/1000)
+                dl_ue_throughput *= (1 - self.scenario['3gpp_overhead_dl']) 
+                ul_ue_throughput *= (1 - self.scenario['3gpp_overhead_ul'])
+
+                reward = min(1,(self.w1 * dl_ue_throughput)/40)
 
                 rewards.append((ue_id, reward))
             if rewards:

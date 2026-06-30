@@ -13,6 +13,7 @@ class Satellite:
         self.handover_manager = self.HandoverManager(self, servers = servers, mu_inter = mu_inter , mu_intra = mu_intra)
         self.num_beams = num_beams
         self.connected_ues = [0] * num_beams # I create a satellite only when a Ue wants to connect to him
+        self.connected_ues_screenshot = [0] * num_beams
 
 
     class HandoverManager:

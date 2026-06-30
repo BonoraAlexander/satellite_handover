@@ -11,7 +11,7 @@ import utils
 
 
 # initial configuration
-df_name_1 = "100km_25beams_sc9_padova.csv"
+df_name_1 = "100km_25beams_sc9_padova.csv"#"100km_25beams_sc9_padova.csv"
 enable_elevation_threshold = True
 elevation_threshold = 30
 enable_doppler_computation = False
@@ -176,6 +176,8 @@ if(enable_doppler_computation):
                     pbar.update(1)
                 
     print("Computation completed!\n")
+
+cluster1.rl_agent.save_model()
 
 print("Creating the folder with the ue dataframes ...")
 
