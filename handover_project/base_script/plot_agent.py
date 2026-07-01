@@ -8,8 +8,9 @@ print(df)
 df['learning_step'] = np.arange(len(df))
 df["learning_step"] = df["learning_step"]//20
 
-plt.figure()
+plt.figure(figsize=(12, 6))
 sns.lineplot(df, x='learning_step', y='reward')
 plt.ylim(0,1)
+plt.yticks(np.arange(0, 1.1, 0.1))
 plt.grid()
 plt.savefig('reward.png', dpi=300)

@@ -11,12 +11,24 @@ import utils
 
 
 # initial configuration
-df_name_1 = "100km_25beams_sc9_padova.csv"#"100km_25beams_sc9_padova.csv"
+df_name_1 = "100km_25beams_sc9_padova_2026_02_18_00_24h.csv"#"100km_25beams_sc9_padova.csv"
+########################################
+# retrive parameters
+data_frame_1 = pd.read_csv(df_name_1)
+numbers = re.findall(r'\d+', df_name_1)
+beam_size_km = int(numbers[0])
+num_beams = int(numbers[1])
+year = int(numbers[3])
+month = int(numbers[4])
+day = int(numbers[5])
+minute = int(numbers[6])
+duration_h = int(numbers[7])
+########################################
 enable_elevation_threshold = True
 elevation_threshold = 30
 enable_doppler_computation = False
 
-simTime = timedelta(minutes=60)
+simTime = timedelta(hours=duration_h)
 num_ues = 100
 mu_inter = 30 * 1e-3
 mu_intra = 1 * 1e-3 
@@ -55,13 +67,6 @@ rl_parameters = (w1, w2, w3, enable_rl_algorithm)
 
 
 
-# retrive parameters
-data_frame_1 = pd.read_csv(df_name_1)
-numbers = re.findall(r'\d+', df_name_1)
-beam_size_km = int(numbers[0])
-num_beams = int(numbers[1])
-
-
 # parsing input parameters 
 parser = argparse.ArgumentParser(description="Satellite Simulation Script")
 parser.add_argument('--servers', type=int, default=servers, help='Number of servers')
@@ -75,7 +80,7 @@ cluster1 = Cluster("Cluster1", (45.40996, 11.89261, 0), num_ues, beam_size_km, n
 clusters = [cluster1] 
 
 # (# year, month, day, hour, minute, second)
-time = datetime(2026, 2, 19, 0, 0, 0) 
+time = datetime(year, month, day, minute, 0, 0) 
 end_sim_time = time + simTime
 
 # Initial connection phase: each ue connects to a random satellite
@@ -177,7 +182,8 @@ if(enable_doppler_computation):
                 
     print("Computation completed!\n")
 
-cluster1.rl_agent.save_model()
+if enable_rl_algorithm:
+    cluster1.rl_agent.save_model()
 
 print("Creating the folder with the ue dataframes ...")
 

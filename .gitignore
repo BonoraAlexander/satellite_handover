@@ -22,4 +22,5 @@ ENV/
 *.png
 *.jpg
 *.jpeg
+*.pt
 plots/
