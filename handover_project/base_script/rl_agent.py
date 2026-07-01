@@ -4,8 +4,8 @@ import pandas as pd
 import os
 from statistics import mean
 
-if os.path.exists('agent_log.csv'):
-    os.remove('agent_log.csv')
+# if os.path.exists('agent_log.csv'):
+#    os.remove('agent_log.csv')
 
 class RolloutBuffer:
     def __init__(self):
@@ -160,22 +160,12 @@ class PPO:
             GAMMA = 0.95
             LAMBDA = 0.95
 
-            '''
-            last_next_state = self.buffer.states[-1]  # Get the last state in the buffer
+            last_next_state = self.buffer.states[-1]  
             with torch.no_grad():
-                next_value = self.policy.critic(last_next_state).squeeze()  # state AFTER buffer ends
-
-            for i in reversed(range(len(self.buffer.rewards))):
-                next_val = next_value if i == len(self.buffer.rewards) - 1 else old_state_values[i + 1]
-                delta = self.buffer.rewards[i] + GAMMA * next_val - old_state_values[i]
-                gae = delta + GAMMA * LAMBDA * gae
-                advantages[i] = gae
-            '''
-            
+                next_value = self.policy.critic(last_next_state).squeeze() 
             for i in reversed(range(len(rewards))):
-                delta = rewards[i] + GAMMA * (0 if i == len(rewards)-1 else old_state_values[i + 1]) - old_state_values[i]
-                gae = delta + GAMMA * LAMBDA * gae
-                advantages[i] = gae
+                delta = rewards[i] + GAMMA * (next_value if i == len(rewards)-1 else old_state_values[i + 1]) - old_state_values[i]
+                advantages[i] = delta + GAMMA * LAMBDA * gae
             returns = advantages + old_state_values
 
           
@@ -257,8 +247,8 @@ class RLAgent:
         lr_critic = 0.0001
         hidden_neurons = 128
         
-        self.max_vis_sat = 20
-        self.num_features = 2
+        self.max_vis_sat = 30
+        self.num_features = 3
         state_dim = self.max_vis_sat * self.num_features
         self.ppo = PPO(state_dim, self.max_vis_sat, hidden_neurons, lr_actor, lr_critic, gamma, K_epochs, eps_clip)
         self.counter = 1
