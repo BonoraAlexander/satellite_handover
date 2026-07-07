@@ -230,7 +230,17 @@ if(average_handover_rate):
             count_inter = len(df[df['event_type'] == 'inter_ho'])
             intra_ho_count.append(count_intra)
             inter_ho_count.append(count_inter)
+        df_intra_counts = pd.DataFrame({
+            'count':intra_ho_count
+        }).fillna(0).astype(int)
+        df_inter_counts = pd.DataFrame({
+            'count': inter_ho_count
+        }).fillna(0).astype(int)
 
+        if save_plot_values:
+            os.makedirs(os.path.join(output_folder, fname), exist_ok=True)
+            df_intra_counts.to_csv(os.path.join(output_folder, fname, "2-intra_ho_count.csv"), index=False)
+            df_inter_counts.to_csv(os.path.join(output_folder, fname, "2-inter_ho_count.csv"), index=False)
         # Base color for this cluster
         color = plt.cm.tab10(i)
         
@@ -335,6 +345,18 @@ if(average_handover_duration):
                 intra_ho_duration.append(mean_1)
             if pd.notna(mean_2):
                 inter_ho_duration.append(mean_2)
+
+        df_intra_duration = pd.DataFrame({
+            'duration':intra_ho_duration
+        }).fillna(0).astype(int)
+        df_inter_duration = pd.DataFrame({
+            'duration': inter_ho_duration
+        }).fillna(0).astype(int)
+
+        if save_plot_values:
+            os.makedirs(os.path.join(output_folder, fname), exist_ok=True)
+            df_intra_duration.to_csv(os.path.join(output_folder, fname, "3-intra_ho_duration.csv"), index=False)
+            df_inter_duration.to_csv(os.path.join(output_folder, fname, "3-inter_ho_duration.csv"), index=False)
 
         # Base color for this cluster
         color = plt.cm.tab10(i)
@@ -477,6 +499,18 @@ if(average_service_time):
                         curr_beam = dest_beam
                         beam_start_time = t
 
+        df_intra_st = pd.DataFrame({
+            'duration':cluster_beam_durations
+        }).fillna(0).astype(int)
+        df_inter_st = pd.DataFrame({
+            'duration': cluster_sat_durations
+        }).fillna(0).astype(int)
+
+        if save_plot_values:
+            os.makedirs(os.path.join(output_folder, fname), exist_ok=True)
+            df_intra_st.to_csv(os.path.join(output_folder, fname, "4-intra_st.csv"), index=False)
+            df_inter_st.to_csv(os.path.join(output_folder, fname, "4-inter_st.csv"), index=False)
+
         # Base color for this cluster
         color = plt.cm.tab10(i)
 
@@ -594,6 +628,17 @@ if(ho_handled):
         except Exception as e:
             print("Empty satellite dataframe!")
             continue
+    df_intra_ho_per_sat = pd.DataFrame({
+        'count': intra_ho_count
+    }).fillna(0).astype(int)
+    df_inter_ho_per_sat = pd.DataFrame({
+        'count': inter_ho_count
+    }).fillna(0).astype(int)
+
+    if save_plot_values:
+        os.makedirs(os.path.join(output_folder, fname), exist_ok=True)
+        df_intra_ho_per_sat.to_csv(os.path.join(output_folder, fname, "5-intra_ho_per_sat.csv"), index=False)
+        df_inter_ho_per_sat.to_csv(os.path.join(output_folder, fname, "5-inter_ho_per_sat.csv"), index=False)
 
     # Dictionary to hold data for CSV saving later
     csv_data = {}
@@ -1009,6 +1054,21 @@ if(max_users_per_satellite):
         except Exception as e:
             # We print the error now instead of using 'pass' so nothing is hidden
             print(f"File {file_path.name} failed with error: {repr(e)}")
+    
+    df_max_occupancy = pd.DataFrame({
+        'count': max_users_counts
+    })
+
+    # Remove any zeros (and NaNs) from the dataframe
+    df_max_occupancy = df_max_occupancy.dropna()
+    df_max_occupancy = df_max_occupancy[df_max_occupancy['count'] != 0]
+    # Ensure integer type for counts
+    df_max_occupancy['count'] = df_max_occupancy['count'].astype(int)
+    
+
+    if save_plot_values:
+        os.makedirs(os.path.join(output_folder, fname), exist_ok=True)
+        df_max_occupancy.to_csv(os.path.join(output_folder, fname, "10-max_occupancy.csv"), index=False)
 
     print(f"Successfully processed {num_sats} satellites.")
     fig, ax = plt.subplots(figsize=(12, 6))
