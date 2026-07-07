@@ -34,7 +34,8 @@ class Cluster:
         self.list_beams = [Beam(self.name + "-Beam" + str(ii+1), ii, self.positions[ii], int(num_ues/num_beams), self.beam_size_km, int(np.sqrt(num_beams)), servers, mu_inter, mu_intra) for ii in range(self.num_beams)]
 
         if(self.enable_rl_algorithm):
-            self.rl_agent = rl_agent.RLAgent() if self.enable_rl_algorithm else None
+            # self.rl_agent = rl_agent.PPoAgent() if self.enable_rl_algorithm else None
+            self.rl_agent = rl_agent.DDQLAgent() if self.enable_rl_algorithm else None
             self.rl_agent = self.rl_agent.load_model() if self.rl_agent.load_model() is not None else self.rl_agent
 
     # in order to compute the position of the beams, we assume that they are arranged in a grid centered on the cluster position, 
