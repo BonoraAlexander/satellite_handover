@@ -44,7 +44,18 @@ save_plot_values = True
 # ================================================================================================
 
 # dataframes parameters
-df_name = "100km_25beams_sc9_padova.csv"
+df_name = "100km_25beams_sc9_padova_2026_02_18_00_24h.csv"
+########################################
+# retrive parameters
+numbers = re.findall(r'\d+', df_name)
+beam_size_km = int(numbers[0])
+num_beams = int(numbers[1])
+year = int(numbers[3])
+month = int(numbers[4])
+day = int(numbers[5])
+minute = int(numbers[6])
+duration_h = int(numbers[7])
+########################################
 padova_lat, padova_lon = 45.40996, 11.89261
 dfnames = [df_name] 
 fnames = ["padova"]
@@ -55,8 +66,9 @@ elevation_threshold = 30
 output_folder = "plots"
 period = '60 min'
 num_ues_label = 100
-simTimeStart = datetime(2026, 2, 19, 0, 0, 0) 
-simTimeEnd = datetime(2026, 2, 19, 1, 0, 0) 
+simTimeStart = datetime(year, month, day, minute, 0, 0)
+simTime = timedelta(hours=duration_h)
+simTimeEnd = simTimeStart + simTime 
 time_step = timedelta(seconds=1)
 num_ues_to_plot = 1
 

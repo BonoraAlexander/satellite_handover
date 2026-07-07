@@ -33,8 +33,9 @@ class Cluster:
         self.positions = self.calculate_beams_grid(self.position[0], self.position[1], self.beam_size_km, self.num_beams)
         self.list_beams = [Beam(self.name + "-Beam" + str(ii+1), ii, self.positions[ii], int(num_ues/num_beams), self.beam_size_km, int(np.sqrt(num_beams)), servers, mu_inter, mu_intra) for ii in range(self.num_beams)]
 
-        self.rl_agent = rl_agent.RLAgent() if self.enable_rl_algorithm else None
-        self.rl_agent = self.rl_agent.load_model() if self.rl_agent.load_model() is not None else self.rl_agent
+        if(self.enable_rl_algorithm):
+            self.rl_agent = rl_agent.RLAgent() if self.enable_rl_algorithm else None
+            self.rl_agent = self.rl_agent.load_model() if self.rl_agent.load_model() is not None else self.rl_agent
 
     # in order to compute the position of the beams, we assume that they are arranged in a grid centered on the cluster position, 
     # and that the distance between adjacent beams is equal to the beam size. We then compute the latitude and longitude of each 
@@ -186,8 +187,8 @@ class Cluster:
         ho_ues = []
 
         # # make a screenshot of the current load for all the serving satellite
-        # for satellite in service_sats:
-        #     service_sats[satellite].connected_ues_screenshot = service_sats[satellite].connected_ues.copy()
+        for satellite in service_sats:
+            service_sats[satellite].connected_ues_screenshot = service_sats[satellite].connected_ues.copy()
 
         # check if each UE needs to perform an intra or an inter handover based on the handover condition.
         for mini_cluster in self.list_beams:
@@ -298,15 +299,14 @@ class Cluster:
                             candidate_sat = iii[0]
                             # sat_info is composed as follow ( (sat_name, sat_lat, sat_lon, sat_alt, occurence_countdown) , beam_index, snr_dl_db )
                             sat_infos.append((candidate_sat, beam_index, snr_dl_db))
-                            # connected_to = ue.connected_to
-                            # connected_to_beam = ue.connected_to_beam
-                            # curr_sat_load = 0
-                            # if connected_to is not None:
-                            #     curr_sat_load = service_sats[connected_to.name].connected_ues_screenshot[connected_to_beam]
-                            states.append((snr_dl_db, load))
+                            connected_to = ue.connected_to
+                            connected_to_beam = ue.connected_to_beam
+                            curr_sat_load = 0
+                            if connected_to is not None:
+                                curr_sat_load = service_sats[connected_to.name].connected_ues_screenshot[connected_to_beam]
+                            states.append((snr_dl_db, load, curr_sat_load))
 
                         # RL target satellite selection
-                        
                         if sat_infos:
                             sat_info = self.rl_agent.rl_algorithm_selection(ue.id, sat_infos, states)
                             next_sat, next_beam_index = sat_info[0], sat_info[1]
@@ -418,10 +418,10 @@ class Cluster:
                 equivalent_snr_dl_db -= self.scenario['dl_db_headroom']
                 equivalent_snr_ul_db -= self.scenario['ul_db_headroom']
                 dl_ue_throughput, ul_ue_throughput = utils.compute_shannon_from_snr(equivalent_snr_dl_db, equivalent_snr_ul_db, self.scenario)
-                if(ue.remaining_handover_execution_time >= 1000):
+                if(user.remaining_handover_execution_time >= 1000):
                     dl_ue_throughput = 0
                     ul_ue_throughput = 0
-                elif(ue.remaining_handover_execution_time > 0):
+                elif(user.remaining_handover_execution_time > 0):
                     dl_ue_throughput = dl_ue_throughput * (1 - ue.remaining_handover_execution_time/1000)
                     ul_ue_throughput = ul_ue_throughput * (1 - ue.remaining_handover_execution_time/1000)
                 dl_ue_throughput *= (1 - self.scenario['3gpp_overhead_dl']) 
