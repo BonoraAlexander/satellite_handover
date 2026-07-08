@@ -554,9 +554,9 @@ class DDQLAgent():
         state_dim = self.max_vis_sat * self.num_features
         action_dim = self.max_vis_sat
         gamma = 0.95
-        batch_size = 32
-        target_replace = 1000
-        memory_capacity = 1000
+        batch_size = 128
+        target_replace = 5000
+        memory_capacity = 100000
         learning_rate = 0.0001
         eps = 0.01
         weight_decay = 0.0001
@@ -583,7 +583,7 @@ class DDQLAgent():
         self.rewards = []
 
     def get_epsilon(self, step):
-        EPS_MIN = 0.1
+        EPS_MIN = 0.01
         EPS_MAX = 1
         LAMBDA = 0.001
         return EPS_MIN + math.exp(-LAMBDA*step) * (EPS_MAX-EPS_MIN)
@@ -701,11 +701,9 @@ class DDQLAgent():
         return
     
     def save_model(self, path = "checkpoints/agent.pt"):
-        return
-        self.ppo.save(path)
+        self.__ddql.save(path)
 
     def load_model(self, path = "checkpoints/agent.pt"):
-        return
         if not os.path.isfile(path):
             return None
-        self.ppo.load(path)
+        self.__ddql.load(path)
