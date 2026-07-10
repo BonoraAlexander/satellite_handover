@@ -135,3 +135,30 @@ def get_best_neighbor_snr(visible_satellites, curr_sat_name, round_time, mini_cl
                 best_beam_index = beam_index
     return best_satellite, best_beam_index, best_snr_dl
 
+
+def get_a_better_neighbor_snr(visible_satellites, curr_sat_name, round_time, mini_cluster, df_satellites_positions, scenario, curr_snr_dl, snr_difference_threshold):
+    """
+    implementation of 3GPP Event-A3 handover condition, that is, the handover is triggered when the UE detects that
+    the SNR of a neighboring satellite becomes higher than the SNR of the serving cell by a certain threshold, usually set to 2 dB.
+    Instead of returns the best neighbor, it returns a random neighbor that has a SNR higher than the current serving satellite by at least snr_difference_threshold dB.
+    """
+    best_satellite = None
+    best_snr_dl = None
+    best_beam_index = None
+    candidate_satellites = []
+    for satellite_tuple, beam_index in visible_satellites:
+        satellite_name = satellite_tuple[0]
+        if(curr_sat_name != satellite_name):
+            candidate_snr_dl, _ = utils.get_noisy_snr(df_satellites_positions, round_time, satellite_name, mini_cluster.position, scenario)
+            if(candidate_snr_dl - curr_snr_dl > snr_difference_threshold):
+                candidate_satellites.append((candidate_snr_dl, satellite_tuple, beam_index))
+
+    if(candidate_satellites):
+        # select a random candidate satellite from the list of candidates
+        selected_candidate = random.choice(candidate_satellites)
+        best_snr_dl = selected_candidate[0]
+        best_satellite = selected_candidate[1]
+        best_beam_index = selected_candidate[2]
+
+    return best_satellite, best_beam_index, best_snr_dl
+

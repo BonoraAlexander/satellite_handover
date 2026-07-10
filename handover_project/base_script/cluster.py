@@ -242,26 +242,25 @@ class Cluster:
                         ue.inter_handover_flag = True
                 elif(event == "A3"):
                     snr_difference_threshold = ho_condition[1]
+                    enhanced_flag = ho_condition[2]
                     snr_dl = -100
                     best_snr_dl = -100
                     if curr_sat is not None:
                         if index != -1:
                             snr_dl, _ = utils.get_noisy_snr(self.df_satellites_positions, round_time, curr_sat.name, mini_cluster.position, self.scenario)
                         choices = len(visible_sats_for_each_minicluster[mini_cluster.index])
-                        # print(f"curr_sat before calling the best satellite function: {curr_sat.name}")
-                        best_satellite, best_beam_index, best_snr_dl = strategies.get_best_neighbor_snr(visible_sats_for_each_minicluster[mini_cluster.index], curr_sat.name, round_time, mini_cluster, self.df_satellites_positions, self.scenario)
-                        # if(best_satellite is None):
-                        #     print(f"at time {round_time} the ue {ue.id} connected to satellite {curr_sat.name} sees the following satellites:")
-                        #     for sat in visible_sats_for_each_minicluster[mini_cluster.index]:
-                        #         print(f"\t{sat}")
-                        # print(f"returning ({best_satellite}, {best_beam_index}, {best_snr_dl})")
-                        # print(f"curr_sat after calling the best satellite function: {curr_sat.name}")
+                        if(not enhanced_flag):
+                            best_satellite, best_beam_index, best_snr_dl = strategies.get_best_neighbor_snr(visible_sats_for_each_minicluster[mini_cluster.index], curr_sat.name, round_time, mini_cluster, self.df_satellites_positions, self.scenario)
+                        else:
+                            best_satellite, best_beam_index, best_snr_dl = strategies.get_a_better_neighbor_snr(visible_sats_for_each_minicluster[mini_cluster.index], curr_sat.name, round_time, mini_cluster, self.df_satellites_positions, self.scenario, snr_dl, snr_difference_threshold)
+
                     else:
                         choices = len(visible_sats_for_each_minicluster[mini_cluster.index])
-                        best_satellite, best_beam_index, best_snr_dl = strategies.get_best_neighbor_snr(visible_sats_for_each_minicluster[mini_cluster.index], "", round_time, mini_cluster, self.df_satellites_positions, self.scenario)
-                        # print(f"returning ({best_satellite}, {best_beam_index}, {best_snr_dl}) from the else case")
-                    
-                    # print(f"at time {round_time} the UE {ue.id} detects best satellite {best_satellite}, the current satellite is {curr_sat}.")
+                        if(not enhanced_flag):
+                            best_satellite, best_beam_index, best_snr_dl = strategies.get_best_neighbor_snr(visible_sats_for_each_minicluster[mini_cluster.index], "", round_time, mini_cluster, self.df_satellites_positions, self.scenario)
+                        else:
+                            best_satellite, best_beam_index, best_snr_dl = strategies.get_a_better_neighbor_snr(visible_sats_for_each_minicluster[mini_cluster.index], "", round_time, mini_cluster, self.df_satellites_positions, self.scenario, snr_dl, snr_difference_threshold)
+
                     satellite_out_visibility = index == -1
                     if((best_satellite is not None) and (best_snr_dl - snr_dl > snr_difference_threshold or satellite_out_visibility)):
                         # print(f"we perform inter-satellite handover since the neighboring snr is {best_snr_dl}, the current snr is {snr_dl}, and the difference is {best_snr_dl - snr_dl}.")
