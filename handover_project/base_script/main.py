@@ -36,16 +36,19 @@ servers = 1
 scenario = utils.sc9_parameters
 handover_timer = 40
 a3_event_snr_threshold = 2 # dB
+enhanced_flag = False # don't take the best satellite, but a random one among the ones that are better than the current one
 
-ho_condition_1 = ("VISIBILITY")
-sat_selection_condition_1 = "RANDOM"
+ho_condition_1 = ("A3", a3_event_snr_threshold, enhanced_flag)
+sat_selection_condition_1 = "A3"
 
 # RL parameters
 w1 = 1 # capacity weight
 w2 = 1 # load weight
 w3 = 0 # delay weight
-enable_rl_algorithm =  True # if True, use RL algorithm for target satellite selection for HO
-rl_parameters = (w1, w2, w3, enable_rl_algorithm)
+enable_rl_algorithm =  False # if True, use RL algorithm for target satellite selection for HO
+eneable_rl_learning = True # if True, the RL agent will learn during the simulation, otherwise it will use a pre-trained model
+agent_type = "PPO" # RL agent type: "PPO" or "DQL"
+rl_parameters = (w1, w2, w3, enable_rl_algorithm, eneable_rl_learning, agent_type)
 
 ####################################
 ########### ho_condition ###########
@@ -54,7 +57,7 @@ rl_parameters = (w1, w2, w3, enable_rl_algorithm)
 # ("ELEVATION", elev_threshold): if the elevation angle goes under certain thresholds then handover to a new satellite
 # ("TIMER", handover_timer): if not already triggered, handover to a new satellite after handover_timer seconds
 # ("VISIBILITY"): standard approach, no input needed, handover when satellite goes out of visibility
-# ("A3", a3_event_snr_threshold): 3GPP Event-A3: monitor neighbouring cells, handover if one becomes better by a3_event_snr_threshold dB
+# ("A3", a3_event_snr_threshold, enhanced_flag): 3GPP Event-A3: monitor neighbouring cells, handover if one becomes better by a3_event_snr_threshold dB. if enhanced flag is true, select a random sat among the ons with higher SNR than the current one by a3_event_snr_threshold dB, otherwise select the best one.
 
 ###############################################
 ########### sat_selection_condition ###########

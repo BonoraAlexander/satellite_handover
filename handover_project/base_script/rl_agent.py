@@ -483,6 +483,7 @@ class PPOAgent:
         self.states = []
         self.actions = []
         self.rewards = []
+        self.learning_flag = True
 
     def rl_algorithm_selection(self, ue_id, sat_infos, states):
         # Pad the states to have a fixed size of max_vis_sat
@@ -511,9 +512,10 @@ class PPOAgent:
             self.ppo.buffer.is_terminals.append(False)
             self.rewards.append(reward[1])
 
-        if self.ppo.learning_steps and (self.ppo.learning_steps >= self.counter*self.ppo.update_timestep):
-            self.ppo.update()
-            self.counter += 1
+        if(self.learning_flag):
+            if self.ppo.learning_steps and (self.ppo.learning_steps >= self.counter*self.ppo.update_timestep):
+                self.ppo.update()
+                self.counter += 1
 
         log = pd.DataFrame([{
             'actions': self.actions,
@@ -536,6 +538,9 @@ class PPOAgent:
         if not os.path.isfile(path):
             return None
         self.ppo.load(path)
+
+    def set_learning(self, flag):
+        self.learning_flag = flag
 
 
 
@@ -581,6 +586,8 @@ class DDQLAgent():
 
         self.actions = []
         self.rewards = []
+
+        self.learning_flag = True
 
     def get_epsilon(self, step):
         EPS_MIN = 0.01
@@ -684,7 +691,8 @@ class DDQLAgent():
             self.observe_reward(reward[1])
             self.rewards.append(reward[1])  
 
-        self.learn()
+        if(self.learning_flag):
+            self.learn()
 
         log = pd.DataFrame([{
             'actions': self.actions,
@@ -707,3 +715,6 @@ class DDQLAgent():
         if not os.path.isfile(path):
             return None
         self.__ddql.load(path)
+
+    def set_learning(self, flag):
+        self.learning_flag = flag

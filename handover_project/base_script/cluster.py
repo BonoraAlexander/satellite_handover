@@ -11,7 +11,7 @@ import math
 import rl_agent
 
 class Cluster:
-    def __init__(self, name, position, num_ues, beam_size_km, num_beams, satellites_frame, servers, mu_inter, mu_intra, scenario, enable_elevation = False, elevation_threshold = 0, rl_parameters = (0, 0, 0, False)):
+    def __init__(self, name, position, num_ues, beam_size_km, num_beams, satellites_frame, servers, mu_inter, mu_intra, scenario, enable_elevation = False, elevation_threshold = 0, rl_parameters = (0, 0, 0, False, False, "PPO")):
         self.name = name
         self.position = position
         self.num_ues = num_ues
@@ -28,15 +28,22 @@ class Cluster:
         self.w2 = rl_parameters[1]
         self.w3 = rl_parameters[2]
         self.enable_rl_algorithm = rl_parameters[3]
+        self.enable_rl_learning = rl_parameters[4]
+        self.agent_type = rl_parameters[5]
 
         # beams computation
         self.positions = self.calculate_beams_grid(self.position[0], self.position[1], self.beam_size_km, self.num_beams)
         self.list_beams = [Beam(self.name + "-Beam" + str(ii+1), ii, self.positions[ii], int(num_ues/num_beams), self.beam_size_km, int(np.sqrt(num_beams)), servers, mu_inter, mu_intra) for ii in range(self.num_beams)]
 
         if(self.enable_rl_algorithm):
-            # self.rl_agent = rl_agent.PPoAgent() if self.enable_rl_algorithm else None
-            self.rl_agent = rl_agent.DDQLAgent() if self.enable_rl_algorithm else None
+            if(self.agent_type == "PPO"):
+                self.rl_agent = rl_agent.PPOAgent() if self.enable_rl_algorithm else None
+            elif(self.agent_type == "DQL"):
+                self.rl_agent = rl_agent.DDQLAgent() if self.enable_rl_algorithm else None
+            else:
+                raise ValueError("Invalid agent type. Choose either 'PPO' or 'DQL'.")
             self.rl_agent = self.rl_agent.load_model() if self.rl_agent.load_model() is not None else self.rl_agent
+            self.rl_agent.set_learning(self.enable_rl_learning)
 
     # in order to compute the position of the beams, we assume that they are arranged in a grid centered on the cluster position, 
     # and that the distance between adjacent beams is equal to the beam size. We then compute the latitude and longitude of each 
