@@ -1,179 +1,183 @@
-from satellite import Satellite
+"""
+This file defines the User Equipment (UE) class for the Non-Terrestrial Network (NTN) simulation. 
+Under the centralized SDN architecture, the UE operates as a passive terminal. 
+It maintains its geographical position, applies Exponential Moving Average (EMA) filters to smooth physical channel noise, tracks performance metrics, and executes scheduled handover directives strictly dictated by the central controller.
+"""
+
 import pandas as pd
 import os
 
 class Ue:
-    def __init__(self, id, position):
-        self.id = id
+    def __init__(self, ue_id, position):
+        """
+        Initializes the User Equipment (UE) with its unique identifier and geographical coordinates. 
+        It sets up the initial disconnected state, internal variables for SDN scheduled handovers, 
+        EMA filters for signal smoothing, and metric trackers for post-simulation analysis.
+        """
+        self.id = ue_id
         self.lat = position[0]
         self.lon = position[1]
         self.alt = position[2]
+        
         self.connected_to = None
         self.connected_to_beam = None
-        self.handover_tracker = []
-        self.time_to_next_handover = 0 # [s] time to next handover in case of fixed timer handover condition
-        self.intra_handover_flag = False # save if the ue has performed ho in the current time instant
-        self.inter_handover_flag = False
-        self.remaining_handover_execution_time = 0 # [ms] save the ho duration at this time instant if the ue has performed ho
-        self.thr_tracker = []
+        
+        self.scheduled_handover = None 
+        
+        self.ema_snr_dl = None
+        self.ema_snr_ul = None
+        self.ema_elevation = None
+        self.EMA_ALPHA = 0.3 
 
-    
+        self.handover_tracker = []
+        self.thr_tracker = []
+        self.remaining_handover_execution_time = 0 
+
+    def update_ema_filters(self, raw_snr_dl, raw_snr_ul, raw_elev):
+        """
+        Updates the Exponential Moving Average (EMA) filters for downlink SNR, uplink SNR, and perceived elevation. 
+        This mitigates the Gaussian noise from the physical layer readings, ensuring metric stability for the SDN controller's decision-making process.
+        """
+        if self.ema_snr_dl is None:
+            self.ema_snr_dl = raw_snr_dl
+            self.ema_snr_ul = raw_snr_ul
+            self.ema_elevation = raw_elev
+        else:
+            self.ema_snr_dl = (self.EMA_ALPHA * raw_snr_dl) + ((1 - self.EMA_ALPHA) * self.ema_snr_dl)
+            self.ema_snr_ul = (self.EMA_ALPHA * raw_snr_ul) + ((1 - self.EMA_ALPHA) * self.ema_snr_ul)
+            self.ema_elevation = (self.EMA_ALPHA * raw_elev) + ((1 - self.EMA_ALPHA) * self.ema_elevation)
+        
+        return self.ema_snr_dl, self.ema_snr_ul, self.ema_elevation
+
+    def execute_scheduled_handover(self, current_time):
+        """
+        Acts as the passive execution engine for the UE. 
+        It continuously checks if the current simulation time matches or exceeds the execution timestamp dictated by the SDN's Temporal Trigger Spreading (TTS) mechanism. 
+        If the trigger condition is met, it routes the execution to either an intra-satellite or inter-satellite handover.
+        """
+        if self.scheduled_handover is not None:
+            exec_time = self.scheduled_handover['time']
+            
+            if current_time >= exec_time:
+                dest_sat = self.scheduled_handover['sat']
+                dest_beam = self.scheduled_handover['beam']
+                
+                curr_sat, curr_beam_index = self.get_connection_info()
+                
+                if curr_sat is not None and dest_sat is not None and curr_sat.name == dest_sat.name:
+                    self.intra_handover(current_time, curr_sat, dest_beam)
+                else:
+                    self.inter_handover(current_time, dest_sat, dest_beam)
+                
+                self.scheduled_handover = None
+                return True 
+                
+        return False
+
+    def get_connection_info(self):
+        """
+        Returns the current routing pointers, specifically the active satellite object and the active beam index to which the UE is currently connected.
+        """
+        return self.connected_to, self.connected_to_beam
+
     def connect_to_satellite(self, satellite, beam_index):
         """
-        Connect the UE to a satellite and a specific beam index.
-        This should be called whenever the UE needs to connect to a satellite,
-        either for the initial connection or for a handover.
+        Physically establishes the connection to a new satellite node by updating the internal pointers to the target satellite and beam.
         """
         self.connected_to = satellite
         self.connected_to_beam = beam_index
 
-    
-    def deactivate(self, cluster_name):
+    def disconnect(self):
         """
-        Deactivate the UE. This should be called once the UE is no longer needed.
+        Severs the current connection, effectively putting the UE in a link failure or Out of Service (OOS) state by clearing the active routing pointers.
         """
-        # handover df
-        df = pd.DataFrame(self.handover_tracker)
-        filename = f"{self.id}_handover_events.csv"
+        self.connected_to = None
+        self.connected_to_beam = None
 
-        output_folder = cluster_name + " dataframes"
-        full_path = os.path.join(output_folder, filename)
-        os.makedirs(output_folder, exist_ok=True)
-
-        df.to_csv(full_path, index=False)
-
-        # throughput df
-        df = pd.DataFrame(self.thr_tracker)
-        filename = f"{self.id}_thr_over_time.csv"
-
-        output_folder = cluster_name + " throughput"
-        full_path = os.path.join(output_folder, filename)
-        os.makedirs(output_folder, exist_ok=True)
-
-        df.to_csv(full_path, index=False)
-
-
-    def get_connection_info(self):
+    def deactivate(self, cluster_name, label):
         """
-        Return the satellite object and the beam index to which the UE is currently connected.
+        Terminates the UE's lifecycle at the end of the simulation. 
+        It exports the logged handover events and throughput telemetry into structured CSV files for post-simulation analytics.
         """
-        return self.connected_to, self.connected_to_beam
+        if self.handover_tracker:
+            df_ho = pd.DataFrame(self.handover_tracker)
+            output_folder_ho = f"{cluster_name} dataframes_{label}"
+            os.makedirs(output_folder_ho, exist_ok=True)
+            df_ho.to_csv(os.path.join(output_folder_ho, f"{self.id}_handover_events.csv"), index=False)
 
-    
+        if self.thr_tracker:
+            df_thr = pd.DataFrame(self.thr_tracker)
+            output_folder_thr = f"{cluster_name} throughput_{label}"
+            os.makedirs(output_folder_thr, exist_ok=True)
+            df_thr.to_csv(os.path.join(output_folder_thr, f"{self.id}_thr_over_time.csv"), index=False)
+
     def inter_handover(self, time, dest_sat, dest_beam_index):
         """
-        Handle the handover process for the UE, and append the handover_info structh and the general connection infos 
-        to all the nodes involved according to the specific case we fall in.
-        All the possible cases are:
-            1) From None to None (out_serv)
-            2) From Sat1 to None (lost_conn)
-            3) From None to Sat2 (rest_conn)
-            4) From Sat1 to Sat2 (inter_ho)
+        Manages the physical transition to a different satellite node (Inter-HO). 
+        It handles varying connection states, including complete loss of coverage, reconnection from an offline state, and standard node-to-node transitions. 
+        It invokes the target satellite's handover manager and logs the transition metrics.
         """
         curr_sat, curr_beam_index = self.get_connection_info()
 
-        # Case 1) and 2)
-        if(dest_sat is None):
-            event_type = "out_serv"
-            curr_sat_name = None
-
-            if(curr_sat is not None): # Case 2)
-                event_type = "lost_conn"
-                curr_sat_name = curr_sat.name
+        if dest_sat is None:
+            event_type = "lost_conn" if curr_sat is not None else "out_serv"
+            curr_sat_name = curr_sat.name if curr_sat is not None else None
 
             handover_info = {
-                    "arrival_time": time,
-                    "event_type": event_type,
-                    "ue_id": self.id,
-                    "from_satellite": curr_sat_name,
-                    "from_beam_index": curr_beam_index,
-                    "dest_satellite": None,
-                    "dest_beam_index": None,
-                    "start_time": time,
-                    "departure_time": 0,
-                    "duration": 1,
-                    "dest_number_ues": None
+                    "arrival_time": time, "event_type": event_type, "ue_id": self.id,
+                    "from_satellite": curr_sat_name, "from_beam_index": curr_beam_index,
+                    "dest_satellite": None, "dest_beam_index": None,
+                    "start_time": time, "departure_time": 0, "duration": 1, "dest_number_ues": None
                 }
 
-            # update curr_sat infos
-            if(curr_sat is not None):
+            if curr_sat is not None:
                 curr_sat.disconnect_ue(curr_beam_index)
                 curr_sat.handover_manager.handover_tracker.append(handover_info)
 
-            # update UE infos
             self.disconnect()
             self.remaining_handover_execution_time = handover_info["duration"]
             self.handover_tracker.append(handover_info)
-
             return 
         
-        # Case 3) and 4)
-        else: 
-            if(curr_sat is None): # Case 3)
-                handover_info = {
-                    "arrival_time": time,
-                    "event_type": "rest_conn",
-                    "ue_id": self.id,
-                    "from_satellite": None,
-                    "from_beam_index": None,
-                    "dest_satellite": dest_sat.name,
-                    "dest_beam_index": dest_beam_index,
-                    "start_time": time,
-                    "departure_time": 0,
-                    "duration": 1,
+        if curr_sat is None: 
+            handover_info = {
+                    "arrival_time": time, "event_type": "rest_conn", "ue_id": self.id,
+                    "from_satellite": None, "from_beam_index": None,
+                    "dest_satellite": dest_sat.name, "dest_beam_index": dest_beam_index,
+                    "start_time": time, "departure_time": 0, "duration": 1,
                     "dest_number_ues": dest_sat.connected_ues.copy()
                 }
+            dest_sat.handover_manager.handover_tracker.append(handover_info)
+            dest_sat.connect_ue(dest_beam_index)
 
-                # update destt_sat infos 
-                dest_sat.handover_manager.handover_tracker.append(handover_info)
-                dest_sat.connect_ue(dest_beam_index)
+            self.remaining_handover_execution_time = handover_info["duration"] * 1000
+            self.handover_tracker.append(handover_info)
+            self.connect_to_satellite(dest_sat, dest_beam_index)
 
-                # update UE infos
-                self.remaining_handover_execution_time = handover_info["duration"] * 1000
-                self.handover_tracker.append(handover_info)
-                self.connect_to_satellite(dest_sat , dest_beam_index)
+        else: 
+            handover_info = curr_sat.handover_manager.process_handover_inter(time, self, curr_beam_index, dest_sat, dest_beam_index)
 
-            else: # Case 4)
-                handover_info = curr_sat.handover_manager.process_handover_inter(time, self, curr_beam_index, dest_sat, dest_beam_index)
+            dest_sat.handover_manager.handover_tracker.append(handover_info)
+            dest_sat.connect_ue(dest_beam_index)
+            curr_sat.handover_manager.handover_tracker.append(handover_info)
+            curr_sat.disconnect_ue(curr_beam_index)
 
-                # update satellites infos
-                dest_sat.handover_manager.handover_tracker.append(handover_info)
-                dest_sat.connect_ue(dest_beam_index)
-                curr_sat.handover_manager.handover_tracker.append(handover_info)
-                curr_sat.disconnect_ue(curr_beam_index)
-
-                # update UE infos
-                self.remaining_handover_execution_time = handover_info["duration"] * 1000
-                self.handover_tracker.append(handover_info)
-                self.connect_to_satellite(dest_sat , dest_beam_index)
-
-        return  
+            self.remaining_handover_execution_time = handover_info["duration"] * 1000
+            self.handover_tracker.append(handover_info)
+            self.connect_to_satellite(dest_sat, dest_beam_index)
 
     def intra_handover(self, time, dest_sat, dest_beam_index):
         """
-        Handle the intra-handover process for the UE, append the handover_info struct to both ue and curr_sat
-        (please notice that the dest_sast is equal to the curr_sat), and update the counter of curr_sat and 
-        beam_index for the UE.
+        Manages the logical transition between two different beams within the same serving satellite (Intra-HO). 
+        It processes the structural latency and updates the internal counters of the current satellite node.
         """
-
-        # update curr_sat and dest_sat infos and retrive the handover_info struct according to the queue process
         curr_sat, curr_beam_index = self.get_connection_info()
         handover_info = curr_sat.handover_manager.process_handover_intra(time, self, curr_beam_index, dest_sat, dest_beam_index)
+        
         curr_sat.handover_manager.handover_tracker.append(handover_info)
         curr_sat.disconnect_ue(curr_beam_index)
         dest_sat.connect_ue(dest_beam_index)
 
-        # update the ue infos
-        self.connect_to_satellite(dest_sat , dest_beam_index) # so as to update to which satellite this ue is connected
+        self.connect_to_satellite(dest_sat, dest_beam_index) 
         self.remaining_handover_execution_time = handover_info["duration"] * 1000
         self.handover_tracker.append(handover_info)
-
-        return 
-    
-
-    def disconnect(self):
-        """
-        Disconnect the UE from its current satellite. This should be called when the UE goes out of service.
-        """
-        self.connected_to = None
-        self.connected_to_beam = None

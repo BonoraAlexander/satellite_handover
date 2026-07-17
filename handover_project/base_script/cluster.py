@@ -1,15 +1,22 @@
-from ue import Ue
+"""
+This module defines the Cluster class, which represents a specific geographic area containing multiple beams (mini-clusters) and User Equipments (UEs).
+It serves as the interface between the physical layer and the control plane, managing physical visibility, simulating the Slotted ALOHA RACH protocol with collision handling, generating stochastic Markov traffic, and periodically invoking the centralized SDN Controller for global handover orchestration.
+"""
+
 from beam import Beam
-from satellite import Satellite
 from datetime import datetime, timedelta
 import utils
-import handover_strategies as strategies
 import random
-from satellite import Satellite
 import numpy as np
+from channel import Channel
+from sdn_controller import SDN_Controller
 
 class Cluster:
-    def __init__(self, name, position, num_ues, beam_size_km, num_beams, satellites_frame, servers, mu_inter, mu_intra, scenario, enable_elevation = False, elevation_threshold = 0):
+    def __init__(self, name, position, num_ues, beam_size_km, num_beams, satellites_frame, servers, mu_inter, mu_intra, scenario, enable_elevation=False, elevation_threshold=0):
+        """
+        Initializes the geographic cluster, sets up the physical boundaries, and instantiates the local beam grid.
+        It also links the centralized SDN controller to this cluster and configures the stochastic ON/OFF Markov traffic model to simulate bursty user behaviors.
+        """
         self.name = name
         self.position = position
         self.num_ues = num_ues
@@ -21,139 +28,94 @@ class Cluster:
         self.sat_servers = servers
         self.sat_mu_inter = mu_inter
         self.sat_mu_intra = mu_intra
-        self.scenario = scenario # stores the struct containing the parameters characterizing the scenario (e.g.: frequency, EIRP, etc) from the utils class.
+        self.scenario = scenario
 
-        # beams computation
+        self.sdn_controller = SDN_Controller(self, scenario, satellites_frame)
+
         self.positions = self.calculate_beams_grid(self.position[0], self.position[1], self.beam_size_km, self.num_beams)
-        self.list_beams = [Beam(self.name + "-Beam" + str(ii+1), ii, self.positions[ii], int(num_ues/num_beams), self.beam_size_km, int(np.sqrt(num_beams)), servers, mu_inter, mu_intra) for ii in range(self.num_beams)]
+        self.list_beams = [Beam(f"{self.name}-Beam{ii+1}", ii, self.positions[ii], int(num_ues/num_beams), self.beam_size_km, int(np.sqrt(num_beams)), servers, mu_inter, mu_intra) for ii in range(self.num_beams)]
 
-    # in order to compute the position of the beams, we assume that they are arranged in a grid centered on the cluster position, 
-    # and that the distance between adjacent beams is equal to the beam size. We then compute the latitude and longitude of each 
-    # beam based on the center position and the beam size, taking into account the curvature of the Earth. 
+        self.t_on_mean = 3.0   
+        self.t_off_mean = 12.0 
+        
+        self.p_on_to_off = 1.0 / self.t_on_mean
+        self.p_off_to_on = 1.0 / self.t_off_mean
+        
+        for mini_cluster in self.list_beams:
+            for ue in mini_cluster.list_ues:
+                ue.traffic_state = 'ON' if random.random() < (self.t_on_mean / (self.t_on_mean + self.t_off_mean)) else 'OFF'
+
     def calculate_beams_grid(self, center_lat, center_lon, beam_size_km, num_beams):
         """
-        This function calculates the positions of the beams' centers in a grid pattern around the center position.
+        Computes the precise geocentric coordinates (latitude, longitude, altitude) for the center of each individual beam within the cluster's overarching footprint based on the specified beam size and grid layout.
         """
         grid_size = int(np.sqrt(num_beams))
-        # Ensure inputs are treated as float64 (doubles)
-        center_lat = np.float64(center_lat)
-        center_lon = np.float64(center_lon)
+        center_lat, center_lon = np.float64(center_lat), np.float64(center_lon)
         
         KM_PER_DEG_LAT = np.float64(111.32)
         km_per_deg_lon = KM_PER_DEG_LAT * np.cos(np.radians(center_lat))
         
         indices = np.arange(grid_size)
         center_idx = grid_size // 2 
-        
         col_grid, row_grid = np.meshgrid(indices, indices)
         
-        # Calculate offsets using float64 math
         delta_y_km = (center_idx - row_grid).astype(np.float64) * beam_size_km
         delta_x_km = (col_grid - center_idx).astype(np.float64) * beam_size_km
         
-        # Final Lats and Lons
         lats = (center_lat + (delta_y_km / KM_PER_DEG_LAT)).flatten()
         lons = (center_lon + (delta_x_km / km_per_deg_lon)).flatten()
-        
-        # Create altitude as float64 zeros
         alts = np.zeros_like(lats, dtype=np.float64)
 
         return list(zip(lats, lons, alts))
 
-
-
-    # only at the beginning of the simulation, we attech every UEs of all the mini-cluster to a beam 
-    # of a random satellite within the visibility.
-    def initial_connection_phase(self, time, service_sats, handover_timer = 0):
+    def initial_connection_phase(self, time, service_sats, handover_timer=0):
         """
-        This function handles the initial connection phase for the UEs in the mini-cluster.
-        It should connect each UE to a random visible satellite. If no available satellite is visible, the UE will be 
-        considered out of service until a satellite becomes visible.
-        Inputs:
-            - time: the current time of the simulation, used to determine the visible satellites at this time.
-            - service_sats: a dictionary that will be updated with the satellites that are serving the UEs of the cluster.
-        
+        Bootstraps the simulation environment by evaluating the initial line-of-sight visibility of the satellite constellation and triggering the first routing optimization phase via the SDN controller.
         """
-        # Find all visible satellites at the given time
-        # round to the closest sec
         round_time = (time + timedelta(microseconds=500000)).replace(microsecond=0)
         visible_sats = utils.get_satellites_at_time(self.frame, round_time)
-
-        # visible_sats identifies all the satellites visibled by at least one mini-cluster of the cluster.
-        # we need to find which mini-clusters can see each satellite
-        # "visible_sats_for_each_minicluster" is a list of lists, where the i-th element is the list of 
-        # satellites visible from the i-th mini-cluster
         visible_sats_for_each_minicluster = [[] for _ in range(self.num_beams)]
+        
         for sat in visible_sats:
             sat_lat, sat_lon = sat[1], sat[2]
-            sat_cell_boundaries = utils.compute_cell_boundaries_lla(sat_lat, sat_lon, self.beam_size_km*1000, int(np.sqrt(self.num_beams)))
+            sat_cell_boundaries = utils.compute_cell_boundaries_lla(sat_lat, sat_lon, self.beam_size_km * 1000, int(np.sqrt(self.num_beams)))
             visible_clusters_indices = utils.check_clusters_visibility(self.positions, sat_cell_boundaries, int(np.sqrt(self.num_beams)))
 
-            # case when the current examinated satellite illimunate only a portion of a specific mini-cluster but not its center, i.e., it
-            # illuminates less then 50%, so we conclude that mini-cluster cannot be served by that satellite beam.
-            if(visible_clusters_indices.size == 0):
+            if visible_clusters_indices.size == 0:
                 continue
 
             satellite_beam_indices = utils.get_coverage_beam_indices_matrix(visible_clusters_indices, int(np.sqrt(self.num_beams)))
-            
             rows, cols = visible_clusters_indices.shape
             for ii in range(rows):
                 for jj in range(cols):
                     idx_cluster = visible_clusters_indices[ii][jj]
                     idx_sat_beam = satellite_beam_indices[ii][jj]
-                    if(idx_sat_beam != -1):
+                    if idx_sat_beam != -1:
                         visible_sats_for_each_minicluster[idx_cluster].append((sat, idx_sat_beam))
         
         for index, mini_cluster in enumerate(self.list_beams):
             mini_cluster.initial_connection_phase(visible_sats_for_each_minicluster[index], time, service_sats, handover_timer)
                 
+        self.sdn_controller.run_optimization(time, service_sats, visible_sats_for_each_minicluster)
         return service_sats
-    
-
 
     def monitor(self, time, service_sats, ho_condition, sat_selection_condition):
         """
-            This function handles the monitoring of the current connections of the UEs and the handover process if needed. 
-            It should be called at each time step of the simulation. For each mini-cluster, it checks the visibility of the satellites
-            and determines if a handover is needed for each UE. If a handover is needed, it selects the target satellite randomly. 
-            For the moment the only ho condition is the visibility. 
-
-            visible_sats_for_each_minicluster is a list of lists, where each element is a list containing the visible 
-            satellites for the corresponding mini-cluster as follows: [(sat1, idx_sat_beam1), (sat2, idx_sat_beam2), ...] 
-            Specifically, satX is a tuple with the satellite info (name, lat, lon, alt) and idx_sat_beamX is the index of the 
-            beam of the satellite that covers the mini-cluster.
-
-            For example, if we have 3 mini-clusters, the structure of visible_sats_for_each_minicluster will be as follows:
-
-            __                                                                                                              __
-            |                                                                                                                |
-            | [(sat1, idx_sat_beam1), ...]   ,   [(sat1, idx_sat_beam1), ...]   ,   [(sat1, idx_sat_beam1), ...]   ,   ...   |
-            |_                                                                                                              _|
-            
-                mini-cluster 1 (index 0)            mini-cluster 2 (index 1)           mini-cluster 3 (index 2)        ...
-
-
-            Handle the handover process for the UE.
-            Possible scenarios:
-            1) The UE is currently connected to a satellite and needs to handover to a new beam of the same satellite (intra-satellite handover).
-            2) The UE is currently connected to a satellite and needs to handover to a new beam of a different satellite (inter-satellite handover).
-            3) The UE is not currently connected to any satellite and needs to connect to a new beam of a satellite (inter-satellite handover).
-            4) The Ue is not currently connected to any satellite and no satellite is visible, so it remains out of service (inter-satellite handover)).
+        Represents the core operational loop executed at each time step. 
+        It evaluates the physical geometry of the constellation, updates UE Markov traffic states, applies EMA-filtered Gaussian noise to the physical layer metrics, and models the Slotted ALOHA RACH protocol including collision detection and exponential backoff mechanisms. 
+        It periodically (or critically) invokes the SDN controller to re-optimize network routing.
         """
-        # round to the closest sec
         round_time = (time + timedelta(microseconds=500000)).replace(microsecond=0)
 
-        # check the visibility of all satellites respect to the whole cluster
         visible_sats = utils.get_satellites_at_time(self.frame, round_time)
         visible_sats_for_each_minicluster = [[] for _ in range(self.num_beams)]
+        
         for sat in visible_sats:
             sat_lat, sat_lon, sat_alt = sat[1], sat[2], sat[3]
-            sat_cell_boundaries = utils.compute_cell_boundaries_lla(sat_lat, sat_lon, self.beam_size_km*1000, int(np.sqrt(self.num_beams)))
+            sat_cell_boundaries = utils.compute_cell_boundaries_lla(sat_lat, sat_lon, self.beam_size_km * 1000, int(np.sqrt(self.num_beams)))
             visible_clusters_indices = utils.check_clusters_visibility(self.positions, sat_cell_boundaries, int(np.sqrt(self.num_beams)), self.enable_elevation, self.elevation_threshold, sat_lat, sat_lon, sat_alt)
 
-            # case when the current examinated satellite illimunate only a portion of a specific mini-cluster but not its center, i.e., it
-            # illuminates less then 50%, so we conclude that mini-cluster cannot be served by that satellite beam.
-            if(visible_clusters_indices.size == 0):
+            if visible_clusters_indices.size == 0:
                 continue
 
             satellite_beam_indices = utils.get_coverage_beam_indices_matrix(visible_clusters_indices, int(np.sqrt(self.num_beams)))
@@ -162,152 +124,155 @@ class Cluster:
                 for jj in range(cols):
                     idx_cluster = visible_clusters_indices[ii][jj]
                     idx_sat_beam = satellite_beam_indices[ii][jj]
-                    if(idx_sat_beam != -1):
+                    if idx_sat_beam != -1:
                         visible_sats_for_each_minicluster[idx_cluster].append((sat, idx_sat_beam))
 
-        # extract the rows of the dataframe related to the current time instant
-        if isinstance(round_time, datetime):
-            target_time_str = round_time.strftime("%Y-%m-%d %H:%M:%S")
-        else:
-            target_time_str = str(round_time)
-        curr_time_df =self.frame[self.frame['time'].astype(str) == target_time_str].copy()
-
-        # check if each UE needs to perform an intra or an inter handover based on the handover condition.
         for mini_cluster in self.list_beams:
             for ue in mini_cluster.list_ues:
-                curr_sat, curr_beam_index = ue.get_connection_info()
-                ue.intra_handover_flag = False
-                ue.inter_handover_flag = False
-                next_sat = None
-                event = ho_condition[0]
-
-                # ============== Detect the type of required handover (if needed) ==============
-
-                # check if the current satellite is still visible from the mini-cluster of the UE
-                if curr_sat is None: # UE is not connected to any satellite
-                    index = -1
-                else:
-                    index = next((i for i, (obj, *_) in enumerate(visible_sats_for_each_minicluster[mini_cluster.index]) if obj[0] == curr_sat.name), -1)
-                    
-                if (index == -1): # the current satellite is not visible anymore --> inter handover
-                    ue.inter_handover_flag = True
-                elif (curr_beam_index != visible_sats_for_each_minicluster[mini_cluster.index][index][1]): # the current satellite is still visible --> check if intra handover is needed
-                    ue.intra_handover_flag = True
-
-                if(event == "SNR"):
-                    dl_threshold, ul_threshold = ho_condition[1], ho_condition[2]
-                    snr_dl, snr_ul = utils.get_snr(self.frame, round_time, curr_sat.name, mini_cluster.position, self.scenario)
-                    dl_measurement_noise = random.gauss(0, self.scenario['dlul_snr_variance'])
-                    ul_measurement_noise = random.gauss(0, self.scenario['dlul_snr_variance'])
-                    snr_dl += dl_measurement_noise
-                    snr_ul += ul_measurement_noise
-                    if(snr_dl < dl_threshold or snr_ul < ul_threshold):
-                        ue.inter_handover_flag = True
-                elif(event == "TIMER"):
-                    if(ue.time_to_next_handover <= 0):
-                        ue.inter_handover_flag = True
-                    else:
-                        ue.time_to_next_handover -= 1 # decrease the time to next handover by 1 second
-                elif(event == "ELEVATION"):
-                    elev_threshold = ho_condition[1]
-                    sat_elev = utils.get_elevation(curr_time_df, round_time, curr_sat.name, mini_cluster.position)
-                    if(sat_elev < elev_threshold):
-                        ue.inter_handover_flag = True
-
-
-                # ============== Performe the handover (if selected) ==============
-                if(ue.inter_handover_flag): # handover to a new beam of a new satellite
-
-                    # possible satellites beams towards which the ue could handover
-                    choices = len(visible_sats_for_each_minicluster[mini_cluster.index])
-                    # if no one, the ue goes out of service
-                    if(choices == 0):
-                        next_sat = None
-                        next_beam_index = None
-                        ue.time_to_next_handover = 0 # reset the time to next handover in case of fixed timer handover condition
-                    # if there is at least one, select a random one among them and handover
-                    elif(sat_selection_condition == "RANDOM"):
-                        next_sat, next_beam_index = strategies.get_random_visible_satellite(visible_sats_for_each_minicluster[mini_cluster.index])
-                    elif(sat_selection_condition == "MAX_ELEVATION"):
-                        next_sat, next_beam_index = strategies.get_max_elevation_satellite(visible_sats_for_each_minicluster[mini_cluster.index], curr_time_df, round_time, mini_cluster)
-                    elif(sat_selection_condition == "MAX_VISIBILITY"):
-                        next_sat, next_beam_index = strategies.get_max_visibility_satellite(visible_sats_for_each_minicluster[mini_cluster.index], curr_time_df, round_time)
-                    elif(sat_selection_condition == "AVL_THR"):
-                        next_sat, next_beam_index = strategies.get_max_available_throughput_satellite(visible_sats_for_each_minicluster[mini_cluster.index], round_time, mini_cluster, service_sats, self.frame, self.scenario)
-                    if(next_sat is not None):
-                        selected_sat_name = next_sat[0]
-                        if selected_sat_name not in service_sats:
-                            sat = Satellite(selected_sat_name, self.sat_servers, self.sat_mu_inter, self.sat_mu_intra, self.num_beams)
-                            service_sats[selected_sat_name] = sat
-                        next_sat = service_sats[selected_sat_name]
-                        if(ho_condition[0] == "TIMER"):
-                            ue.time_to_next_handover = ho_condition[1] -1 # reset the time to next handover in case of fixed timer handover condition
-                    # if there is at least one, select the less busy satellite which could guarantee the higer thorughput
-                    # handover to the selected sat (if no one, go out of service)
-                    ue.inter_handover(time, next_sat, next_beam_index)
+                curr_sat, _ = ue.get_connection_info()
                 
-                elif(ue.intra_handover_flag): # handover to a new visible beam of the same satellite
-                    next_sat = curr_sat
-                    next_beam_index = visible_sats_for_each_minicluster[mini_cluster.index][index][1]
-                    ue.intra_handover(time, next_sat, next_beam_index)
+                if ue.traffic_state == 'ON':
+                    if random.random() < self.p_on_to_off: 
+                        ue.traffic_state = 'OFF'
+                else:
+                    if random.random() < self.p_off_to_on: 
+                        ue.traffic_state = 'ON'
+                
+                if curr_sat is not None:
+                    try:
+                        raw_snr_dl, raw_snr_ul = utils.get_noisy_snr(self.frame, round_time, curr_sat.name, mini_cluster.position, self.scenario)
+                        raw_elev = utils.get_elevation(self.frame, round_time, curr_sat.name, mini_cluster.position)
+                    except:
+                        raw_snr_dl, raw_snr_ul, raw_elev = 0, 0, 0
+                else:
+                    raw_snr_dl, raw_snr_ul, raw_elev = 0, 0, 0
+                
+                ue.update_ema_filters(raw_snr_dl, raw_snr_ul, raw_elev)
+
+        rach_attempts = {}
+        for mini_cluster in self.list_beams:
+            for ue in mini_cluster.list_ues:
+                if getattr(ue, 'scheduled_handover', None) is not None:
+                    sched_time = ue.scheduled_handover['time']
+                    
+                    if sched_time <= time and ue.remaining_handover_execution_time == 0:
+                        target_sat_obj = ue.scheduled_handover['sat']
+                        if target_sat_obj is not None: 
+                            rach_attempts.setdefault(target_sat_obj.name, []).append(ue)
+        
+        collided_ues = set()
+        NUM_PREAMBLES = 64 
+        
+        for sat, ues_in_rach in rach_attempts.items():
+            if len(ues_in_rach) > 1:
+                
+                preamble_map = {}
+                for ue in ues_in_rach:
+                    p = random.randint(1, NUM_PREAMBLES)
+                    if p in preamble_map:
+                        preamble_map[p].append(ue)
+                    else:
+                        preamble_map[p] = [ue]
+                
+                for p, users_with_same_preamble in preamble_map.items():
+                    if len(users_with_same_preamble) > 1:
+                        for ue in users_with_same_preamble:
+                            collided_ues.add(ue.id) 
+
+        for mini_cluster in self.list_beams:
+            for ue in mini_cluster.list_ues:
+                was_in_ho = ue.remaining_handover_execution_time > 0
+                
+                ue.execute_scheduled_handover(time)
+                
+                is_in_ho = ue.remaining_handover_execution_time > 0
+                
+                if (not was_in_ho) and is_in_ho and (ue.id in collided_ues):
+                    backoff_delay_ms = random.randint(500, 1500) 
+                    ue.remaining_handover_execution_time += backoff_delay_ms
+
+        trigger_sdn = False
+        if time.second % 5 == 0:
+            trigger_sdn = True
+        else:
+            for mini_cluster in self.list_beams:
+                for ue in mini_cluster.list_ues:
+                    curr_sat, _ = ue.get_connection_info()
+                    if curr_sat is not None and ue.ema_elevation is not None:
+                        try:
+                            elev_old = utils.get_elevation(self.frame, round_time - timedelta(seconds=1), curr_sat.name, mini_cluster.position)
+                            derivata_elev = ue.ema_elevation - elev_old
+                            
+                            if derivata_elev < 0:
+                                t_crit = (ue.ema_elevation - self.elevation_threshold) / abs(derivata_elev)
+                                if t_crit <= 1.0:
+                                    trigger_sdn = True
+                                    break
+                        except:
+                            pass
+                if trigger_sdn: break
+
+        if trigger_sdn and sat_selection_condition == "PREHO":
+            self.sdn_controller.run_optimization(time, service_sats, visible_sats_for_each_minicluster)
 
         self.save_instant_throughput(time)
 
     def save_instant_throughput(self, target_time):
+        """
+        Computes and records the instantaneous effective throughput for each UE in the cluster. 
+        It evaluates the Shannon capacity based on the current channel state and the dynamic user load sharing the same beam resource. 
+        It also scales down the available throughput to account for structural 3GPP protocol overheads and active handover execution downtimes.
+        """
+        active_users_map = {}
+        for mc in self.list_beams:
+            for u in mc.list_ues:
+                sat_obj, b_idx = u.get_connection_info()
+                if sat_obj is not None and getattr(u, 'traffic_state', 'OFF') == 'ON':
+                    key = (sat_obj.name, b_idx)
+                    active_users_map[key] = active_users_map.get(key, 0) + 1
+
         for mini_cluster in self.list_beams:
             for ue in mini_cluster.list_ues:
                 serving_satellite, serving_beam_index = ue.get_connection_info()
-                if(serving_satellite is None or serving_beam_index is None):
-                    thr_info = {
-                        "time": target_time,
-                        "ue.id": ue.id,
-                        "sat.id": None,
-                        "max_dl_thr": 0,
-                        "max_ul_thr": 0,
-                        "connected_users": 1,
-                        "ho_duration": 0,
-                        "dl_thr": 0,
-                        "ul_thr": 0
-                    }
-                    ue.thr_tracker.append(thr_info)
+                
+                if serving_satellite is None or serving_beam_index is None:
+                    ue.thr_tracker.append({
+                        "time": target_time, "ue.id": ue.id, "sat.id": None,
+                        "max_dl_thr": 0, "max_ul_thr": 0, "connected_users": 1,
+                        "ho_duration": 0, "dl_thr": 0, "ul_thr": 0
+                    })
                     continue
+                
                 max_dl_thr, max_ul_thr = utils.get_max_beam_throughput(self.frame, target_time, serving_satellite.name, mini_cluster.position, self.scenario)
-                connected_users = serving_satellite.connected_ues[serving_beam_index]
-                # instant throughput computation
-                dl_ue_throughput = max_dl_thr / connected_users
-                ul_ue_throughput = max_ul_thr / connected_users
-                # print(f"Instant throughput for UE {ue.id}: DL={dl_ue_throughput}, UL={ul_ue_throughput}")
-                # reverse the shannon formula to compute the equivalent snr from the throughput
-                equivalent_snr_dl_db, equivalent_snr_ul_db = utils.reverse_snr_from_thr(dl_ue_throughput, ul_ue_throughput, self.scenario)
-                # print(f"Equivalent SNR for UE {ue.id}: DL={equivalent_snr_dl_db} dB, UL={equivalent_snr_ul_db} dB")
-                equivalent_snr_dl_db -= self.scenario['dl_db_headroom']
-                equivalent_snr_ul_db -= self.scenario['ul_db_headroom']
-                # print(f"Equivalent SNR after accounting for headroom for UE {ue.id}: DL={equivalent_snr_dl_db} dB, UL={equivalent_snr_ul_db} dB")
-                # now compute the throughput of the UE after accounting for the headroom
-                dl_ue_throughput, ul_ue_throughput = utils.compute_shannon_from_snr(equivalent_snr_dl_db, equivalent_snr_ul_db, self.scenario)
-                # print(f"Instant throughput for UE {ue.id} after accounting for headroom: DL={dl_ue_throughput}, UL={ul_ue_throughput}")
+                
+                key = (serving_satellite.name, serving_beam_index)
+                active_users_in_beam = max(1, active_users_map.get(key, 0))
+                
+                dl_ue_throughput = max_dl_thr / active_users_in_beam
+                ul_ue_throughput = max_ul_thr / active_users_in_beam
+                
+                eq_snr_dl, eq_snr_ul = Channel.reverse_snr_from_thr(dl_ue_throughput, ul_ue_throughput, self.scenario)
+                eq_snr_dl -= self.scenario['dl_db_headroom']
+                eq_snr_ul -= self.scenario['ul_db_headroom']
+                
+                dl_ue_throughput, ul_ue_throughput = Channel.compute_shannon_from_snr(eq_snr_dl, eq_snr_ul, self.scenario)
+                
                 ho_duration_ms = ue.remaining_handover_execution_time
-                if(ue.remaining_handover_execution_time >= 1000):
-                    dl_ue_throughput = 0
-                    ul_ue_throughput = 0
+                if ue.remaining_handover_execution_time >= 1000:
+                    dl_ue_throughput, ul_ue_throughput = 0, 0
                     ue.remaining_handover_execution_time -= 1000
-                elif(ue.remaining_handover_execution_time > 0):
-                    dl_ue_throughput = dl_ue_throughput * (1 - ue.remaining_handover_execution_time/1000)
-                    ul_ue_throughput = ul_ue_throughput * (1 - ue.remaining_handover_execution_time/1000)
+                elif ue.remaining_handover_execution_time > 0:
+                    loss_factor = 1 - (ue.remaining_handover_execution_time / 1000)
+                    dl_ue_throughput *= loss_factor
+                    ul_ue_throughput *= loss_factor
                     ue.remaining_handover_execution_time = 0
-
-                dl_ue_throughput *= (1 - self.scenario['3gpp_overhead_dl']) # apply the 3GPP overhead to the throughput
+                
+                dl_ue_throughput *= (1 - self.scenario['3gpp_overhead_dl'])
                 ul_ue_throughput *= (1 - self.scenario['3gpp_overhead_ul'])
 
-                thr_info = {
-                        "time": target_time,
-                        "ue.id": ue.id,
-                        "sat.id": serving_satellite.name,
-                        "max_dl_thr": max_dl_thr,
-                        "max_ul_thr": max_ul_thr,
-                        "connected_users": connected_users,
-                        "ho_duration": ho_duration_ms,
-                        "dl_thr": dl_ue_throughput,
-                        "ul_thr": ul_ue_throughput
-                    }
-                ue.thr_tracker.append(thr_info)
+                ue.thr_tracker.append({
+                        "time": target_time, "ue.id": ue.id, "sat.id": serving_satellite.name,
+                        "max_dl_thr": max_dl_thr, "max_ul_thr": max_ul_thr,
+                        "connected_users": active_users_in_beam, "ho_duration": ho_duration_ms,
+                        "dl_thr": dl_ue_throughput, "ul_thr": ul_ue_throughput
+                    })
