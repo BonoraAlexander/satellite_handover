@@ -253,24 +253,24 @@ class LinearNeuralNetwork(Module, ABC):
         super(LinearNeuralNetwork, self).__init__()
         self.linear_1 = torch.nn.Linear(input_dim, 128)
         self.batch_norm_1 = torch.nn.BatchNorm1d(128)
-        self.linear_2 = torch.nn.Linear(128, 256)
-        self.batch_norm_2 = torch.nn.BatchNorm1d(256)
-        self.linear_3 = torch.nn.Linear(256, 256)
-        self.batch_norm_3 = torch.nn.BatchNorm1d(256)
-        self.linear_4 = torch.nn.Linear(256, 128)
-        self.batch_norm_4 = torch.nn.BatchNorm1d(128)
+        self.linear_2 = torch.nn.Linear(128, 128)
+        self.batch_norm_2 = torch.nn.BatchNorm1d(128)
+        # self.linear_3 = torch.nn.Linear(256, 256)
+        # self.batch_norm_3 = torch.nn.BatchNorm1d(256)
+        # self.linear_4 = torch.nn.Linear(256, 128)
+        # self.batch_norm_4 = torch.nn.BatchNorm1d(128)
         self.linear_5 = torch.nn.Linear(128, output_dim)
 
         torch.nn.init.kaiming_uniform_(self.linear_1.weight, nonlinearity='relu')
         torch.nn.init.kaiming_uniform_(self.linear_2.weight, nonlinearity='relu')
-        torch.nn.init.kaiming_uniform_(self.linear_3.weight, nonlinearity='relu')
-        torch.nn.init.kaiming_uniform_(self.linear_4.weight, nonlinearity='relu')
+        # torch.nn.init.kaiming_uniform_(self.linear_3.weight, nonlinearity='relu')
+        # torch.nn.init.kaiming_uniform_(self.linear_4.weight, nonlinearity='relu')
         torch.nn.init.kaiming_uniform_(self.linear_5.weight, nonlinearity='relu')
 
         torch.nn.init.zeros_(self.linear_1.bias)
         torch.nn.init.zeros_(self.linear_2.bias)
-        torch.nn.init.zeros_(self.linear_3.bias)
-        torch.nn.init.zeros_(self.linear_4.bias)
+        # torch.nn.init.zeros_(self.linear_3.bias)
+        # torch.nn.init.zeros_(self.linear_4.bias)
         torch.nn.init.zeros_(self.linear_5.bias)
 
     def forward(self, x: torch.Tensor):
@@ -282,10 +282,10 @@ class LinearNeuralNetwork(Module, ABC):
         x = self.batch_norm_1(x)
         x = torch.nn.functional.relu(self.linear_2(x))
         x = self.batch_norm_2(x)
-        x = torch.nn.functional.relu(self.linear_3(x))
-        x = self.batch_norm_3(x)
-        x = torch.nn.functional.relu(self.linear_4(x))
-        x = self.batch_norm_4(x)
+        # x = torch.nn.functional.relu(self.linear_3(x))
+        # x = self.batch_norm_3(x)
+        # x = torch.nn.functional.relu(self.linear_4(x))
+        # x = self.batch_norm_4(x)
         return self.linear_5(x)
     '''
     def __init__(self,
@@ -459,7 +459,7 @@ class DDQL(object):
         self.__optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
 
         self.__learn_step = checkpoint.get("learn_step", 0)
-        self.__memory_step = checkpoint.get("memory_step", 0)
+        self.__memory_step = 0 #checkpoint.get("memory_step", 0)
         self._step = checkpoint.get("step", 0)
 
         for state in self.__optimizer.state.values():
