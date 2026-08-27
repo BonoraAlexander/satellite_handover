@@ -23,12 +23,20 @@ class RolloutBuffer:
     
 
     def clear(self):
-        self.actions = self.actions[-(len(self.actions)-self.buffer_size):] 
-        self.states = self.states[-(len(self.states)-self.buffer_size):]
-        self.logprobs = self.logprobs[-(len(self.logprobs)-self.buffer_size):]
-        self.rewards = self.rewards[-(len(self.rewards)-self.buffer_size):]
-        self.state_values = self.state_values[-(len(self.state_values)-self.buffer_size):]
-        self.is_terminals = self.is_terminals[-(len(self.is_terminals)-self.buffer_size):]
+        if len(self.actions) > self.buffer_size:
+            self.actions = self.actions[-(len(self.actions)-self.buffer_size):] 
+            self.states = self.states[-(len(self.states)-self.buffer_size):]
+            self.logprobs = self.logprobs[-(len(self.logprobs)-self.buffer_size):]
+            self.rewards = self.rewards[-(len(self.rewards)-self.buffer_size):]
+            self.state_values = self.state_values[-(len(self.state_values)-self.buffer_size):]
+            self.is_terminals = self.is_terminals[-(len(self.is_terminals)-self.buffer_size):]
+        else:
+            self.actions = []
+            self.states = []
+            self.logprobs = []
+            self.rewards = []
+            self.state_values = []
+            self.is_terminals = []
 
 
 class ActorCritic(torch.nn.Module):
@@ -136,7 +144,8 @@ class PPO:
                 next_value = self.policy.critic(last_next_state).squeeze() 
             for i in reversed(range(len(rewards))):
                 delta = rewards[i] + GAMMA * (next_value if i == len(rewards)-1 else old_state_values[i + 1]) - old_state_values[i]
-                advantages[i] = delta + GAMMA * LAMBDA * gae
+                gae = delta + GAMMA * LAMBDA * gae
+                advantages[i] = gae
             returns = advantages + old_state_values
 
           
