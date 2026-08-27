@@ -12,7 +12,8 @@ import math
 #    os.remove('agent_log.csv')
 
 class RolloutBuffer:
-    def __init__(self):
+    def __init__(self, buffer_size):
+        self.buffer_size = buffer_size
         self.actions = []
         self.states = []
         self.logprobs = []
@@ -22,18 +23,12 @@ class RolloutBuffer:
     
 
     def clear(self):
-        # del self.actions[:]
-        # del self.states[:]
-        # del self.logprobs[:]
-        # del self.rewards[:]
-        # del self.state_values[:]
-        # del self.is_terminals[:]
-        self.actions = self.actions[-(len(self.actions)-512):] 
-        self.states = self.states[-(len(self.states)-512):]
-        self.logprobs = self.logprobs[-(len(self.logprobs)-512):]
-        self.rewards = self.rewards[-(len(self.rewards)-512):]
-        self.state_values = self.state_values[-(len(self.state_values)-512):]
-        self.is_terminals = self.is_terminals[-(len(self.is_terminals)-512):]
+        self.actions = self.actions[-(len(self.actions)-self.buffer_size):] 
+        self.states = self.states[-(len(self.states)-self.buffer_size):]
+        self.logprobs = self.logprobs[-(len(self.logprobs)-self.buffer_size):]
+        self.rewards = self.rewards[-(len(self.rewards)-self.buffer_size):]
+        self.state_values = self.state_values[-(len(self.state_values)-self.buffer_size):]
+        self.is_terminals = self.is_terminals[-(len(self.is_terminals)-self.buffer_size):]
 
 
 class ActorCritic(torch.nn.Module):
@@ -50,7 +45,6 @@ class ActorCritic(torch.nn.Module):
                         torch.nn.Softmax(dim=-1)
                     )
         
-        # critic
         self.critic = torch.nn.Sequential(
                         torch.nn.Linear(state_dim, hidden_neurons),
                         torch.nn.Tanh(),
@@ -59,9 +53,6 @@ class ActorCritic(torch.nn.Module):
                         torch.nn.Linear(hidden_neurons, 1)
                     )
         
-    def forward(self):
-        raise NotImplementedError
-    
 
     def act(self, state):
         action_probs = self.actor(state) 
@@ -97,7 +88,7 @@ class PPO:
         self.batch_size = batch_size
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         
-        self.buffer = RolloutBuffer()
+        self.buffer = RolloutBuffer(update_timestep)
         self.policy = ActorCritic(state_dim, action_dim, hidden_neurons, self.device).to(self.device)
         self.optimizer = torch.optim.Adam([
                         {'params': self.policy.actor.parameters(), 'lr': lr_actor},
@@ -128,30 +119,6 @@ class PPO:
 
     def update(self):
             
-        # Monte Carlo estimate of returns
-        
-
-        #Normalizing the rewards
-        # rewards = torch.tensor(rewards, dtype=torch.float32).to(self.device)
-        # rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-7)
-
-        # # TD(0) estimation of returns
-        # rewards = []
-        # next_state_value = 0  # Assume the value of a terminal state is 0
-        # for reward, is_terminal, state_value in zip(reversed(self.buffer.rewards), 
-        #                                             reversed(self.buffer.is_terminals), 
-        #                                             reversed(self.buffer.state_values)):
-        #     if is_terminal:
-        #         next_state_value = 0  # Terminal state
-        #     # TD(0) update for return
-        #     next_state_value = reward + (self.gamma * next_state_value)
-        #     rewards.insert(0, next_state_value)
-
-        # # Convert rewards to tensor and normalize
-        # rewards = torch.tensor(rewards, dtype=torch.float32).to(self.device)
-        # rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-7)
-
-        # convert list to tensor
         old_states = torch.squeeze(torch.stack(self.buffer.states[:self.update_timestep], dim=0)).detach().to(self.device)
         old_actions = torch.squeeze(torch.stack(self.buffer.actions[:self.update_timestep], dim=0)).detach().to(self.device)
         old_logprobs = torch.squeeze(torch.stack(self.buffer.logprobs[:self.update_timestep], dim=0)).detach().to(self.device)
@@ -200,21 +167,14 @@ class PPO:
                 surr2 = torch.clamp(ratios, 1-self.eps_clip, 1+self.eps_clip) * mb_advantages
 
                 loss = -torch.min(surr1, surr2) + 0.5 * self.MseLoss(state_values, mb_returns.detach()) - 0.01 * dist_entropy
-                
-                # self.entropies.append(dist_entropy.cpu().detach().numpy().mean())
-                # self.losses.append(loss.cpu().detach().numpy().mean())
-                # self.values.append(state_values.cpu().detach().numpy().mean())
-                #self.rewards.append(rewards.cpu().detach().numpy().mean())
 
                 self.optimizer.zero_grad()
                 loss.mean().backward()
                 #torch.nn.utils.clip_grad_norm_(self.policy.parameters(), max_norm=0.5)
                 self.optimizer.step()
             
-        # Copy new weights into old policy
         self.policy_old.load_state_dict(self.policy.state_dict())
 
-        # clear buffer
         self.buffer.clear()
 
     def save(self, path):
@@ -255,76 +215,27 @@ class LinearNeuralNetwork(Module, ABC):
         self.batch_norm_1 = torch.nn.BatchNorm1d(128)
         self.linear_2 = torch.nn.Linear(128, 128)
         self.batch_norm_2 = torch.nn.BatchNorm1d(128)
-        # self.linear_3 = torch.nn.Linear(256, 256)
-        # self.batch_norm_3 = torch.nn.BatchNorm1d(256)
-        # self.linear_4 = torch.nn.Linear(256, 128)
-        # self.batch_norm_4 = torch.nn.BatchNorm1d(128)
-        self.linear_5 = torch.nn.Linear(128, output_dim)
-
-        torch.nn.init.kaiming_uniform_(self.linear_1.weight, nonlinearity='relu')
-        torch.nn.init.kaiming_uniform_(self.linear_2.weight, nonlinearity='relu')
-        # torch.nn.init.kaiming_uniform_(self.linear_3.weight, nonlinearity='relu')
-        # torch.nn.init.kaiming_uniform_(self.linear_4.weight, nonlinearity='relu')
-        torch.nn.init.kaiming_uniform_(self.linear_5.weight, nonlinearity='relu')
-
-        torch.nn.init.zeros_(self.linear_1.bias)
-        torch.nn.init.zeros_(self.linear_2.bias)
-        # torch.nn.init.zeros_(self.linear_3.bias)
-        # torch.nn.init.zeros_(self.linear_4.bias)
-        torch.nn.init.zeros_(self.linear_5.bias)
-
-    def forward(self, x: torch.Tensor):
-        """
-        Compute the q values of the input tensor x
-        """
-
-        x = torch.nn.functional.relu(self.linear_1(x))
-        x = self.batch_norm_1(x)
-        x = torch.nn.functional.relu(self.linear_2(x))
-        x = self.batch_norm_2(x)
-        # x = torch.nn.functional.relu(self.linear_3(x))
-        # x = self.batch_norm_3(x)
-        # x = torch.nn.functional.relu(self.linear_4(x))
-        # x = self.batch_norm_4(x)
-        return self.linear_5(x)
-    '''
-    def __init__(self,
-                 input_dim,
-                 output_dim,
-                 ):
-
-        super(LinearNeuralNetwork, self).__init__()
-        self.batch_norm_0 = torch.nn.BatchNorm1d(input_dim)
-        self.linear_1 = torch.nn.Linear(input_dim, 128)
-        self.batch_norm_1 = torch.nn.BatchNorm1d(128)
-        self.linear_2 = torch.nn.Linear(128, 128)
-        self.batch_norm_2 = torch.nn.BatchNorm1d(128)
         self.linear_3 = torch.nn.Linear(128, output_dim)
-        #self.V = torch.nn.Linear(16, 1)
-        #self.A = torch.nn.Linear(16, output_dim)
 
         torch.nn.init.kaiming_uniform_(self.linear_1.weight, nonlinearity='relu')
         torch.nn.init.kaiming_uniform_(self.linear_2.weight, nonlinearity='relu')
-        torch.nn.init.uniform_(self.linear_3.weight)
+        torch.nn.init.kaiming_uniform_(self.linear_3.weight, nonlinearity='relu')
 
         torch.nn.init.zeros_(self.linear_1.bias)
         torch.nn.init.zeros_(self.linear_2.bias)
-        torch.nn.init.uniform_(self.linear_3.bias)
+        torch.nn.init.zeros_(self.linear_3.bias)
 
     def forward(self, x: torch.Tensor):
         """
         Compute the q values of the input tensor x
         """
-        x = self.batch_norm_0(x)
+
         x = torch.nn.functional.relu(self.linear_1(x))
         x = self.batch_norm_1(x)
         x = torch.nn.functional.relu(self.linear_2(x))
         x = self.batch_norm_2(x)
-        #V = self.V(x)
-        #A = self.A(x)
-        #Q = V + (A - A.mean(dim=1, keepdim=True))
         return self.linear_3(x)
-    '''
+    
 
 class DDQL(object):
     """
@@ -385,7 +296,7 @@ class DDQL(object):
         self.__memory_step += 1  # Increase the number of total transition
 
     def ready(self):
-        return self.__memory_step >= self.__memory_capacity#3 * self.__batch_size
+        return self.__memory_step >= self.__memory_capacity
 
     def step(self):
         """
@@ -459,7 +370,7 @@ class DDQL(object):
         self.__optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
 
         self.__learn_step = checkpoint.get("learn_step", 0)
-        self.__memory_step = 0 #checkpoint.get("memory_step", 0)
+        self.__memory_step = 0 
         self._step = checkpoint.get("step", 0)
 
         for state in self.__optimizer.state.values():
