@@ -83,7 +83,7 @@ def get_max_visibility_satellite(visible_satellites, current_positions_df, round
     next_beam_index = satellites_with_visibility[random_index][1]
     return next_sat, next_beam_index
 
-def get_max_available_throughput_satellite(visible_satellites, round_time, mini_cluster, service_satellites, mainframe, scenario):
+def get_max_available_throughput_satellite(visible_satellites, round_time, mini_cluster, service_satellites, mainframe, scenario, pointing):
     """
     selecting the satellite capable of providing the highest throughput value also considering the current load from the ones in visibility for the UE.
     Args:
@@ -105,8 +105,9 @@ def get_max_available_throughput_satellite(visible_satellites, round_time, mini_
         num_connected_ues = 1
         if satellite_name in service_satellites:
             num_connected_ues += service_satellites[satellite_name].connected_ues[beam]
+        elevation_angle_deg = utils.get_elevation(mainframe, round_time, satellite_name, mini_cluster.position)
         # compute the max throughput based on shannon formula, snr, overhead
-        max_dl_thr, max_ul_thr = utils.get_max_beam_throughput(mainframe, round_time, satellite_name, mini_cluster.position, scenario)
+        max_dl_thr, max_ul_thr = utils.get_max_beam_throughput(mainframe, round_time, satellite_name, mini_cluster.position, scenario, elevation_angle_deg, pointing)
         # split resources amongst the number of connected users
         thr_score = max_dl_thr / num_connected_ues
         satellites_with_throughput.append((satellite, beam, thr_score))

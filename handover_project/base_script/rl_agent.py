@@ -215,15 +215,15 @@ class LinearNeuralNetwork(Module, ABC):
         self.batch_norm_1 = torch.nn.BatchNorm1d(128)
         self.linear_2 = torch.nn.Linear(128, 128)
         self.batch_norm_2 = torch.nn.BatchNorm1d(128)
-        self.linear_3 = torch.nn.Linear(128, output_dim)
+        self.linear_5 = torch.nn.Linear(128, output_dim)
 
         torch.nn.init.kaiming_uniform_(self.linear_1.weight, nonlinearity='relu')
         torch.nn.init.kaiming_uniform_(self.linear_2.weight, nonlinearity='relu')
-        torch.nn.init.kaiming_uniform_(self.linear_3.weight, nonlinearity='relu')
+        torch.nn.init.kaiming_uniform_(self.linear_5.weight, nonlinearity='relu')
 
         torch.nn.init.zeros_(self.linear_1.bias)
         torch.nn.init.zeros_(self.linear_2.bias)
-        torch.nn.init.zeros_(self.linear_3.bias)
+        torch.nn.init.zeros_(self.linear_5.bias)
 
     def forward(self, x: torch.Tensor):
         """
@@ -234,8 +234,8 @@ class LinearNeuralNetwork(Module, ABC):
         x = self.batch_norm_1(x)
         x = torch.nn.functional.relu(self.linear_2(x))
         x = self.batch_norm_2(x)
-        return self.linear_3(x)
-    
+        return self.linear_5(x)
+
 
 class DDQL(object):
     """

@@ -11,7 +11,7 @@ import math
 import rl_agent
 
 class Cluster:
-    def __init__(self, name, position, num_ues, beam_size_km, num_beams, satellites_frame, servers, mu_inter, mu_intra, scenario, enable_elevation = False, elevation_threshold = 0, rl_parameters = (0, 0, 0, False, False, "PPO")):
+    def __init__(self, name, position, num_ues, beam_size_km, num_beams, satellites_frame, servers, mu_inter, mu_intra, scenario, pointing=True, enable_elevation = False, elevation_threshold = 0, rl_parameters = (0, 0, 0, False, False, "PPO")):
         self.name = name
         self.position = position
         self.num_ues = num_ues
@@ -24,6 +24,7 @@ class Cluster:
         self.sat_mu_inter = mu_inter
         self.sat_mu_intra = mu_intra
         self.scenario = scenario # stores the struct containing the parameters characterizing the scenario (e.g.: frequency, EIRP, etc) from the utils class.
+        self.pointing = pointing
         self.w1 = rl_parameters[0]
         self.w2 = rl_parameters[1]
         self.w3 = rl_parameters[2]
@@ -223,12 +224,18 @@ class Cluster:
 
                 if(event == "SNR"):
                     dl_threshold, ul_threshold = ho_condition[1], ho_condition[2]
-                    snr_dl, snr_ul = utils.get_snr(self.df_satellites_positions, round_time, curr_sat.name, mini_cluster.position, self.scenario)
-                    dl_measurement_noise = random.gauss(0, self.scenario['dlul_snr_variance'])
-                    ul_measurement_noise = random.gauss(0, self.scenario['dlul_snr_variance'])
-                    snr_dl += dl_measurement_noise
-                    snr_ul += ul_measurement_noise
-                    if(snr_dl < dl_threshold or snr_ul < ul_threshold):
+                    #snr_dl, snr_ul = utils.get_snr(self.df_satellites_positions, round_time, curr_sat.name, mini_cluster.position, self.scenario)
+                    # handle the case in which the curr sat is None, i.e., the UE is not connected to any satellite, so it is out of service.
+                    if(curr_sat is not None):
+                        elevation_angle_deg = utils.get_elevation(curr_time_df, round_time, curr_sat.name, mini_cluster.position)
+                        snr_dl, snr_ul = utils.get_noisy_snr(self.df_satellites_positions, round_time, curr_sat.name, mini_cluster.position, self.scenario, elevation_angle_deg, self.pointing)
+                        dl_measurement_noise = random.gauss(0, self.scenario['dlul_snr_variance'])
+                        ul_measurement_noise = random.gauss(0, self.scenario['dlul_snr_variance'])
+                        snr_dl += dl_measurement_noise
+                        snr_ul += ul_measurement_noise
+                        if(snr_dl < dl_threshold or snr_ul < ul_threshold):
+                            ue.inter_handover_flag = True
+                    else:
                         ue.inter_handover_flag = True
                 elif(event == "TIMER"):
                     if(ue.time_to_next_handover <= 0):
@@ -247,7 +254,7 @@ class Cluster:
                     best_snr_dl = -100
                     if curr_sat is not None:
                         if index != -1:
-                            snr_dl, _ = utils.get_noisy_snr(self.df_satellites_positions, round_time, curr_sat.name, mini_cluster.position, self.scenario)
+                            snr_dl, _ = utils.get_noisy_snr(self.df_satellites_positions, round_time, curr_sat.name, mini_cluster.position, self.scenario, self.pointing)
                         choices = len(visible_sats_for_each_minicluster[mini_cluster.index])
                         if(not enhanced_flag):
                             best_satellite, best_beam_index, best_snr_dl = strategies.get_best_neighbor_snr(visible_sats_for_each_minicluster[mini_cluster.index], curr_sat.name, round_time, mini_cluster, self.df_satellites_positions, self.scenario)
@@ -291,7 +298,8 @@ class Cluster:
                             sat_name, sat_lat, sat_lon, sat_alt, occurence_countdown = iii[0]
                             beam_index = iii[1]
                             distance_m = utils.compute_distance_m(sat_lat, sat_lon, sat_alt, mini_cluster.position[0], mini_cluster.position[1], 0)
-                            snr_dl_db, _ = utils.compute_snr(distance_m, self.scenario)
+                            elevation_angle_deg = utils.get_elevation(self.df_satellites_positions, round_time, sat_name, mini_cluster.position)
+                            snr_dl_db, _ = utils.compute_snr(distance_m, self.scenario, elevation_angle_deg, pointing=True)
                             # load is the number of UEs already connected to that beam of that satellite
                             load = 0
                             if(sat_name in service_sats):
@@ -366,7 +374,7 @@ class Cluster:
                         elif(sat_selection_condition == "MAX_VISIBILITY"):
                             next_sat, next_beam_index = strategies.get_max_visibility_satellite(visible_sats_for_each_minicluster[mini_cluster.index], curr_time_df, round_time)
                         elif(sat_selection_condition == "AVL_THR"):
-                            next_sat, next_beam_index = strategies.get_max_available_throughput_satellite(visible_sats_for_each_minicluster[mini_cluster.index], round_time, mini_cluster, service_sats, self.df_satellites_positions, self.scenario)
+                            next_sat, next_beam_index = strategies.get_max_available_throughput_satellite(visible_sats_for_each_minicluster[mini_cluster.index], round_time, mini_cluster, service_sats, self.df_satellites_positions, self.scenario, self.pointing)
                         elif(sat_selection_condition == "A3"):
                             pass # since the next satellite informations are filled by the trigger event function, there is no need to do anything here.
                         if(next_sat is not None):
@@ -417,7 +425,8 @@ class Cluster:
                 # reward = self.w1 * capacity_factor - self.w2 * load_factor - self.w3 * delay_factor
 
                 # REWARD FUNCTION V2
-                max_dl_thr, max_ul_thr = utils.get_max_beam_throughput(self.df_satellites_positions, time, current_sat_name, (ue.lat, ue.lon, ue.alt), self.scenario)
+                elevation_angle_deg = utils.get_elevation(self.df_satellites_positions, time, current_sat_name, (ue.lat, ue.lon, ue.alt))
+                max_dl_thr, max_ul_thr = utils.get_max_beam_throughput(self.df_satellites_positions, time, current_sat_name, (ue.lat, ue.lon, ue.alt), self.scenario, elevation_angle_deg, self.pointing)
                 load = current_sat.connected_ues[current_beam_index]
                 dl_ue_throughput = max_dl_thr / load
                 ul_ue_throughput = max_ul_thr / load
@@ -460,7 +469,8 @@ class Cluster:
                     }
                     ue.thr_tracker.append(thr_info)
                     continue
-                max_dl_thr, max_ul_thr = utils.get_max_beam_throughput(self.df_satellites_positions, target_time, serving_satellite.name, mini_cluster.position, self.scenario)
+                elevation_angle_deg = utils.get_elevation(self.df_satellites_positions, target_time, serving_satellite.name, mini_cluster.position)
+                max_dl_thr, max_ul_thr = utils.get_max_beam_throughput(self.df_satellites_positions, target_time, serving_satellite.name, mini_cluster.position, self.scenario, elevation_angle_deg, self.pointing)
                 connected_users = serving_satellite.connected_ues[serving_beam_index]
                 # instant throughput computation
                 dl_ue_throughput = max_dl_thr / connected_users

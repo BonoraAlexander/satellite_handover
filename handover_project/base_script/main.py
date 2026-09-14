@@ -11,7 +11,7 @@ import utils
 
 
 # initial configuration
-df_name_1 = "100km_25beams_sc9_padova_2026_02_18_00_24h.csv"#"100km_25beams_sc9_padova.csv"
+df_name_1 = "200km_25beams_sc9_padova_2026_07_05_12_1h.csv"
 ########################################
 # retrive parameters
 data_frame_1 = pd.read_csv(df_name_1)
@@ -27,26 +27,27 @@ duration_h = int(numbers[7])
 enable_elevation_threshold = True
 elevation_threshold = 30
 enable_doppler_computation = False
-
+ 
 simTime = timedelta(hours=duration_h)
-num_ues = 100
+num_ues = 500
 mu_inter = 30 * 1e-3
 mu_intra = 1 * 1e-3 
 servers = 1
 scenario = utils.sc9_parameters
+pointing = True # True if the satellite is pointing (Earth-Fixed), False otherwise (Earth-Moving). This flag doesn't affect the UE antenna orientation anyway. So, if the satellite is moving, the UE antenna will always point to the satellite, but the satellite will depending on "pointing".
 handover_timer = 40
 a3_event_snr_threshold = 2 # dB
 enhanced_flag = False # don't take the best satellite, but a random one among the ones that are better than the current one
 
-ho_condition_1 = ("A3", a3_event_snr_threshold, enhanced_flag)
-sat_selection_condition_1 = "A3"
+ho_condition_1 = ("VISIBILITY")
+sat_selection_condition_1 = "AVL_THR"
 
 # RL parameters
 w1 = 1 # capacity weight
 w2 = 1 # load weight
 w3 = 0 # delay weight
 enable_rl_algorithm =  False # if True, use RL algorithm for target satellite selection for HO
-eneable_rl_learning = True # if True, the RL agent will learn during the simulation, otherwise it will use a pre-trained model
+eneable_rl_learning = False # if True, the RL agent will learn during the simulation, otherwise it will use a pre-trained model
 agent_type = "PPO" # RL agent type: "PPO" or "DQL"
 rl_parameters = (w1, w2, w3, enable_rl_algorithm, eneable_rl_learning, agent_type)
 
@@ -79,7 +80,7 @@ servers = args.servers
 num_ues = args.num_ues
 
 # (name, position, num_ues, satellites_frame, threshold_snr, satellite servers, satellite mu)
-cluster1 = Cluster("Cluster1", (45.40996, 11.89261, 0), num_ues, beam_size_km, num_beams, data_frame_1, servers, mu_inter, mu_intra, scenario, enable_elevation_threshold, elevation_threshold, rl_parameters)
+cluster1 = Cluster("Cluster1", (45.40996, 11.89261, 0), num_ues, beam_size_km, num_beams, data_frame_1, servers, mu_inter, mu_intra, scenario, pointing, enable_elevation_threshold, elevation_threshold, rl_parameters)
 clusters = [cluster1] 
 
 # (# year, month, day, hour, minute, second)

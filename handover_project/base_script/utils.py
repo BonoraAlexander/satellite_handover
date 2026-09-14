@@ -4,6 +4,7 @@ import numpy as np
 import random
 
 from channel_parameters import ChannelParameters
+from scipy.special import j1
 
 import math
 import pandas as pd
@@ -50,8 +51,8 @@ sc6_parameters = {
     'gt_ue' : 15.9,     # dBi
     'bw_dl' : 400e6,     # Hz
     'bw_ul' : 400e6,    # Hz
-    'freq_dl' : 2e9,    # Hz
-    'freq_ul' : 3e9,    # Hz
+    'freq_dl' : 20e9,    # Hz
+    'freq_ul' : 20e9,    # Hz
     'atm_loss' : 5.3,   # dB
     'dl_db_headroom' : 0, # dB
     'ul_db_headroom' : 0,  # dB
@@ -65,6 +66,8 @@ sc9_parameters = {
     'eirp_ue' : 23,     # dBm
     'gt_sat' : 1.1,     # dBi
     'eirp_sat' : 78.8,  # dBm
+    'gain_sat' : 30,    # dBi
+    'diam_sat' : 2,     # m
     'gt_ue' : -31.6,    # dBi
     'bw_dl' : 30e6,     # Hz
     'bw_ul' : 0.4e6,    # Hz
@@ -338,7 +341,7 @@ def compute_distance_m(satellite_lat, satellite_lon, satellite_alt_m, ue_lat, ue
     distance_m = round(math.sqrt((sat_x - ue_x)**2 + (sat_y - ue_y)**2 + (sat_z - ue_z)**2), 2)
     return distance_m
 
-def compute_snr(distance_m, parameters):
+def compute_snr(distance_m, parameters, elevation_angle_deg, pointing=True):
     # Unpack parameters
     eirp_ue = parameters['eirp_ue']
     gt_sat = parameters['gt_sat']
@@ -348,6 +351,11 @@ def compute_snr(distance_m, parameters):
     bw_ul = parameters['bw_ul']
     freq_dl = parameters['freq_dl']
     freq_ul = parameters['freq_ul']
+
+    if not pointing:
+       g_theta, delta_g_theta = compute_vsat_gain_vs_elevation_angle(elevation_angle_deg, parameters)
+       eirp_sat += g_theta
+       gt_sat += delta_g_theta
 
     c = 299792458 
     path_loss_dl_db = 20 * math.log10(distance_m) + 20 * math.log10(freq_dl) + 20 * math.log10(4 * math.pi / c)
@@ -362,15 +370,9 @@ def compute_snr(distance_m, parameters):
 
     return snr_dl_db, snr_ul_db
 
-def measure_snr_with_noise(distance_m, parameters):
-    snr_dl_db, snr_ul_db = compute_snr(distance_m, parameters)
-    noise_variance = parameters['dlul_snr_variance']
-    snr_dl_db = round(snr_dl_db + random.gauss(0, math.sqrt(noise_variance)), 4)
-    snr_ul_db = round(snr_ul_db + random.gauss(0, math.sqrt(noise_variance)), 4)
-    return snr_dl_db, snr_ul_db
     
-def compute_shannon(distance_m, parameters):
-    snr_dl_db, snr_ul_db = compute_snr(distance_m, parameters)
+def compute_shannon(distance_m, parameters, elevation_angle_deg, pointing=True):
+    snr_dl_db, snr_ul_db = compute_snr(distance_m, parameters, elevation_angle_deg, pointing)
 
     snr_dl_linear = 10 ** (snr_dl_db / 10)
     snr_ul_linear = 10 ** (snr_ul_db / 10)
@@ -396,15 +398,15 @@ def compute_shannon_from_snr(snr_dl_db, snr_ul_db, parameters):
     return dl_thr_mbps, ul_thr_mbps
 
 def reverse_snr_from_thr(dl_ue_thr, ul_ue_thr, parameters):
-    snr_dl_linear = (2 ** (dl_ue_thr * 1e6 / parameters['bw_dl'] * parameters['frequency_reuse_factor']) - 1)
-    snr_ul_linear = (2 ** (ul_ue_thr * 1e6 / parameters['bw_ul'] * parameters['frequency_reuse_factor']) - 1)
+    snr_dl_linear = (2 ** (dl_ue_thr * 1e6 / parameters['bw_dl'] * parameters['frequency_reuse_factor']) - 1) + 1e-9  # Adding a small epsilon to avoid log10(0) issues
+    snr_ul_linear = (2 ** (ul_ue_thr * 1e6 / parameters['bw_ul'] * parameters['frequency_reuse_factor']) - 1) + 1e-9  # Adding a small epsilon to avoid log10(0) issues
 
     snr_dl_db = round(10 * math.log10(snr_dl_linear), 4)
     snr_ul_db = round(10 * math.log10(snr_ul_linear), 4)
 
     return snr_dl_db, snr_ul_db
 
-def get_max_beam_throughput(frame, target_time, satellite_name, mini_cluster_position, scenario):
+def get_max_beam_throughput(frame, target_time, satellite_name, mini_cluster_position, scenario, elevation_angle_deg, pointing):
     mini_cluster_lat, mini_cluster_lon, _ = mini_cluster_position
     dl_total_throughput, ul_total_throughput = 0, 0
     if isinstance(target_time, datetime):
@@ -419,7 +421,7 @@ def get_max_beam_throughput(frame, target_time, satellite_name, mini_cluster_pos
         sat_alt_m = float(matched_satellite['sat_height'].iloc[0])
 
         distance_m = compute_distance_m(sat_lat, sat_lon, sat_alt_m, mini_cluster_lat, mini_cluster_lon, 0)
-        dl_total_throughput, ul_total_throughput = compute_shannon(distance_m, scenario)
+        dl_total_throughput, ul_total_throughput = compute_shannon(distance_m, scenario, elevation_angle_deg, pointing)
     except KeyError as e:
         print(f"Error: Missing expected column in DataFrame - {e}")
     except ValueError as e:
@@ -464,7 +466,7 @@ def get_elevation(frame, target_time, satellite_name, mini_cluster_position):
         
     return sat_elev
 
-def get_noisy_snr(frame, target_time, satellite_name, mini_cluster_position, parameters):
+def get_noisy_snr(frame, target_time, satellite_name, mini_cluster_position, parameters, elevation_angle_deg, pointing=True):
     """
     Compute the dl and ul snr given the minicluster and sat positions.
     Args:
@@ -488,8 +490,9 @@ def get_noisy_snr(frame, target_time, satellite_name, mini_cluster_position, par
         sat_lon = float(matched_satellite['sat_lon'].iloc[0])
         sat_alt_m = float(matched_satellite['sat_height'].iloc[0])
         distance_m = compute_distance_m(sat_lat, sat_lon, sat_alt_m, mini_cluster_lat, mini_cluster_lon, 0)
-        
-        snr_dl_db, snr_ul_db = compute_snr(distance_m, parameters)
+        elevation_angle_deg = ChannelParameters.elevation_angle_deg(mini_cluster_lat, mini_cluster_lon, sat_lat, sat_lon, sat_alt_m)
+
+        snr_dl_db, snr_ul_db = compute_snr(distance_m, parameters, elevation_angle_deg, pointing)
     except KeyError as e:
         print(f"Error: Missing expected column in DataFrame - {e}")
     except ValueError as e:
@@ -657,3 +660,35 @@ def compute_relative_velocity(ue_pos, old_pos, curr_pos, fut_pos, dt=1.0):
     radial_velocity = sum(sat_vel[i] * los_unit[i] for i in range(3))
  
     return radial_velocity
+
+
+def compute_vsat_gain_vs_elevation_angle(elevation_angle_deg, scenario):
+    """
+    Computes the VSAT gain in dBi as a function of the elevation angle in degrees.
+    Args:
+        elevation_angle_deg: elevation angle in degrees
+        scenario: current scenario parameters (ex. sc6_parameters or sc9_parameters)
+
+    Returns:
+        g_theta: VSAT gain in dBi
+        delta_g_theta: Relative loss in dB compared to boresight
+    """
+    
+    fc = scenario['freq_dl'] # carrier frequency in Hz
+    G_max = scenario['gain_sat'] # maximum gain of the satellite antenna in dBi
+    a = scenario['diam_sat'] / 2 # satellite radius in meters
+    theta = 90 - elevation_angle_deg  # angle from the satellite boresight in degrees
+
+    # Bessel function for the VSAT gain
+    if(theta == 0):
+        bessel_value = 1.0
+    elif(abs(theta) <= 90):
+        k = 2*np.pi*fc/3e8
+        bessel_value = 4*pow(abs(j1(k*a*np.sin(np.radians(theta))) / (k*a*np.sin(np.radians(theta)))),2)
+    else:
+        bessel_value = 0.0
+
+    delta_g_theta = 10 * np.log10(bessel_value + 1e-12)
+    g_theta = G_max + delta_g_theta
+
+    return g_theta, delta_g_theta

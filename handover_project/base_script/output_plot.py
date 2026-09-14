@@ -11,6 +11,7 @@ import numpy as np
 from pathlib import Path
 import re
 import random
+from scipy import stats
 
 pd.options.mode.chained_assignment = None  # default='warn'
 
@@ -40,11 +41,14 @@ max_users_per_satellite = True
 # Save the results into a csv
 save_plot_values = True
 
+# test_flag
+test_flag = True
+
 
 # ================================================================================================
 
 # dataframes parameters
-df_name = "100km_25beams_sc9_padova_2026_02_18_00_24h.csv"
+df_name = "200km_25beams_sc9_padova_2026_07_05_12_1h.csv"
 ########################################
 # retrive parameters
 numbers = re.findall(r'\d+', df_name)
@@ -826,6 +830,23 @@ if(out_of_service):
 # 7 Get the throughput considering the handover outage time (v2)
 if(get_throuthput_ho_v2):
     print("7. Plotting the average throughput considering the handover outage time ...")
+
+    # DL throughput considering the handover outage time (v2)
+    fig, ax = plt.subplots(figsize=(12, 6))
+    for i, (df_name, fname) in enumerate(zip(dfnames, fnames)):
+        folder_path = Path("Cluster" + str(i+1) + " throughput")
+        ues_thr = []
+        for file_path in folder_path.glob('*.csv'):
+            df = pd.read_csv(file_path)
+            thr = df['dl_thr'].tolist()
+            ues_thr.append(thr)
+        min_len = min(len(t) for t in ues_thr)
+        ues_thr = [t[:min_len] for t in ues_thr]
+
+        avg_thr = np.mean(ues_thr, axis=0).tolist()
+        std_thr = np.std(ues_thr, axis=0).tolist()      # std dev = sqrt(variance)
+        var_thr = np.var(ues_thr, axis=0).tolist()      # raw variance, for export
+# DL throughput considering the handover outage time (v2)
     fig, ax = plt.subplots(figsize=(12, 6))
     for i, (df_name, fname) in enumerate(zip(dfnames, fnames)):
         folder_path = Path("Cluster" + str(i+1) + " throughput")
@@ -882,6 +903,67 @@ if(get_throuthput_ho_v2):
     ax.xaxis.set_major_formatter(mdates.DateFormatter('%M:%S'))
     os.makedirs(output_folder, exist_ok=True)
     combined_file_path = os.path.join(output_folder, "7-DL_throughput_ho.png")
+    fig.savefig(combined_file_path, dpi=300, bbox_inches='tight')
+    plt.close()
+
+
+    # UL throughput considering the handover outage time (v2)
+    fig, ax = plt.subplots(figsize=(12, 6))
+    for i, (df_name, fname) in enumerate(zip(dfnames, fnames)):
+        folder_path = Path("Cluster" + str(i+1) + " throughput")
+        ues_thr = []
+        for file_path in folder_path.glob('*.csv'):
+            df = pd.read_csv(file_path)
+            thr = df['ul_thr'].tolist()
+            ues_thr.append(thr)
+        min_len = min(len(t) for t in ues_thr)
+        ues_thr = [t[:min_len] for t in ues_thr]
+
+        avg_thr = np.mean(ues_thr, axis=0).tolist()
+        std_thr = np.std(ues_thr, axis=0).tolist()      # std dev = sqrt(variance)
+        var_thr = np.var(ues_thr, axis=0).tolist()      # raw variance, for export
+
+        thr_upper = np.array(avg_thr) + np.array(std_thr)
+        thr_lower = np.array(avg_thr) - np.array(std_thr)
+
+        time_vector = pd.date_range(start=simTimeStart, periods=len(avg_thr), freq='1s')
+        color = plt.cm.tab10(i)
+
+        ax.plot(time_vector, avg_thr, label=f"Cluster {i+1}: {fname}", color=color)
+        ax.fill_between(
+            time_vector,
+            thr_lower,
+            thr_upper,
+            alpha=0.2,
+            color=color,
+            label=f"Cluster {i+1} ±1 std"
+        )
+
+        print(f"{fname} avg thr: ", np.mean(avg_thr))
+        print(f"{fname} avg variance: ", np.mean(var_thr))
+
+        if(save_plot_values):
+            os.makedirs(os.path.join(output_folder, fname), exist_ok=True)
+            df_export = pd.DataFrame({
+                'Seconds':   range(len(avg_thr)),
+                'Timestamp': time_vector,
+                'Cluster_Thr': avg_thr,
+                'Cluster_Std': std_thr,
+                'Cluster_Var': var_thr,
+                'Thr_Upper':   thr_upper.tolist(),
+                'Thr_Lower':   thr_lower.tolist()
+            })
+            csv_file_path = os.path.join(output_folder, fname, "7-UL_throughput_ho_values.csv")
+            df_export.to_csv(csv_file_path, index=False)
+
+    ax.set_title('Average UL Throughputs over Time - All Clusters')
+    ax.set_xlabel('Time')
+    ax.set_ylabel('UL Throughput [Mbit/s]')
+    ax.grid(True)
+    ax.legend(title="Clusters", bbox_to_anchor=(1.05, 1), loc='upper left')
+    ax.xaxis.set_major_formatter(mdates.DateFormatter('%M:%S'))
+    os.makedirs(output_folder, exist_ok=True)
+    combined_file_path = os.path.join(output_folder, "7-UL_throughput_ho.png")
     fig.savefig(combined_file_path, dpi=300, bbox_inches='tight')
     plt.close()
     print("   Completed!\n")
@@ -1093,3 +1175,175 @@ if(max_users_per_satellite):
     csv_file_path = os.path.join(output_folder, fname, "10-max_ue_per_sat.csv")
     df_export.to_csv(csv_file_path, index=False)
     plt.close(fig)
+
+
+
+if(test_flag):
+    # DL throughput considering handover outage time - Worst 5% vs Best 5%
+    fig, ax = plt.subplots(figsize=(13, 7))
+
+    for i, (df_name, fname) in enumerate(zip(dfnames, fnames)):
+        folder_path = Path("Cluster" + str(i + 1) + " throughput")
+        ues_thr = []
+        for file_path in folder_path.glob("*.csv"):
+            df = pd.read_csv(file_path)
+            ues_thr.append(df["dl_thr"].tolist())
+
+        min_len = min(len(t) for t in ues_thr)
+        ues_thr_arr = np.array([t[:min_len] for t in ues_thr])
+
+        # Calcolo del numero di utenti corrispondente al 5%
+        num_ues = ues_thr_arr.shape[0]
+        k = max(1, int(np.ceil(0.05 * num_ues)))
+
+        # Ordina i valori per ogni secondo lungo l'asse degli utenti
+        sorted_thr = np.sort(ues_thr_arr, axis=0)
+        worst_5pct_thr = sorted_thr[:k, :]  # I k valori più bassi
+        best_5pct_thr = sorted_thr[-k:, :]  # I k valori più alti
+
+        # Statistiche worst 5%
+        avg_worst = np.mean(worst_5pct_thr, axis=0)
+        std_worst = np.std(worst_5pct_thr, axis=0)
+
+        # Statistiche best 5%
+        avg_best = np.mean(best_5pct_thr, axis=0)
+        std_best = np.std(best_5pct_thr, axis=0)
+
+        time_vector = pd.date_range(
+            start=simTimeStart, periods=len(avg_worst), freq="1s"
+        )
+        color = plt.cm.tab10(i)
+
+        # Plot Best 5% (linea continua)
+        ax.plot(
+            time_vector,
+            avg_best,
+            linestyle="-",
+            color=color,
+            label=f"Cluster {i+1}: {fname} (Best 5%)",
+        )
+        ax.fill_between(
+            time_vector,
+            avg_best - std_best,
+            avg_best + std_best,
+            alpha=0.15,
+            color=color,
+        )
+
+        # Plot Worst 5% (linea tratteggiata)
+        ax.plot(
+            time_vector,
+            avg_worst,
+            linestyle="--",
+            color=color,
+            label=f"Cluster {i+1}: {fname} (Worst 5%)",
+        )
+        ax.fill_between(
+            time_vector,
+            avg_worst - std_worst,
+            avg_worst + std_worst,
+            alpha=0.15,
+            color=color,
+        )
+
+        print(
+            f"{fname} -> Best 5% Avg: {np.mean(avg_best):.2f} Mbit/s | Worst 5% Avg: {np.mean(avg_worst):.2f} Mbit/s"
+        )
+
+        if save_plot_values:
+            os.makedirs(os.path.join(output_folder, fname), exist_ok=True)
+            df_export = pd.DataFrame(
+                {
+                    "Seconds": range(len(avg_worst)),
+                    "Timestamp": time_vector,
+                    "Best5_Avg": avg_best,
+                    "Best5_Std": std_best,
+                    "Worst5_Avg": avg_worst,
+                    "Worst5_Std": std_worst,
+                }
+            )
+            csv_file_path = os.path.join(
+                output_folder, fname, "7-DL_throughput_ho_percentiles.csv"
+            )
+            df_export.to_csv(csv_file_path, index=False)
+
+    ax.set_title("Best 5% vs Worst 5% Average DL Throughput over Time")
+    ax.set_xlabel("Time")
+    ax.set_ylabel("DL Throughput [Mbit/s]")
+    ax.grid(True)
+    ax.legend(title="Clusters", bbox_to_anchor=(1.05, 1), loc="upper left")
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%M:%S"))
+
+    os.makedirs(output_folder, exist_ok=True)
+    combined_file_path = os.path.join(
+        output_folder, "test.png"
+    )
+    fig.savefig(combined_file_path, dpi=300, bbox_inches="tight")
+    plt.close()
+
+
+if test_flag:
+    # CDF of DL throughput - Worst 5% of users
+    fig, ax = plt.subplots(figsize=(10, 6))
+
+    for i, (df_name, fname) in enumerate(zip(dfnames, fnames)):
+        folder_path = Path("Cluster" + str(i + 1) + " throughput")
+        ues_thr = []
+        for file_path in folder_path.glob("*.csv"):
+            df = pd.read_csv(file_path)
+            ues_thr.append(df["dl_thr"].tolist())
+
+        min_len = min(len(t) for t in ues_thr)
+        ues_thr_arr = np.array([t[:min_len] for t in ues_thr])
+
+        # Calcolo del numero di utenti corrispondente al 5%
+        num_ues = ues_thr_arr.shape[0]
+        k = max(1, int(np.ceil(0.05 * num_ues)))
+
+        # Ordina i valori per ogni secondo e seleziona i peggiori k
+        sorted_thr = np.sort(ues_thr_arr, axis=0)
+        worst_5pct_thr = sorted_thr[:k, :]
+
+        # Appiattiamo la matrice per ottenere tutti i valori del "peggior 5%"
+        worst_values = worst_5pct_thr.flatten()
+        color = plt.cm.tab10(i)
+
+        if len(worst_values) > 0:
+            # Calcolo della CDF empirica
+            # 1. Ordina tutti i valori dal più piccolo al più grande
+            x_vals = np.sort(worst_values)
+            # 2. Crea un array lineare da 0 a 1 proporzionale al numero di campioni
+            y_vals = np.arange(1, len(x_vals) + 1) / len(x_vals)
+
+            # Plot
+            ax.plot(x_vals, y_vals, label=f"Cluster {i+1}: {fname}", color=color, linewidth=2)
+
+        if save_plot_values:
+            os.makedirs(os.path.join(output_folder, fname), exist_ok=True)
+            # Esportiamo le coordinate esatte per poter ricreare la CDF su PGFPlots/TikZ
+            df_export = pd.DataFrame(
+                {
+                    "Throughput_Mbps": x_vals,
+                    "CDF": y_vals
+                }
+            )
+            csv_file_path = os.path.join(
+                output_folder, fname, "7-DL_throughput_worst5_cdf_values.csv"
+            )
+            df_export.to_csv(csv_file_path, index=False)
+
+    ax.set_title("CDF of the Worst 5% DL Throughput")
+    ax.set_xlabel("DL Throughput [Mbit/s]")
+    ax.set_ylabel("Cumulative Probability (CDF)")
+    ax.grid(True, linestyle="--", alpha=0.7)
+    ax.legend(title="Clusters")
+
+    # Modifichiamo l'asse Y per adattarlo strettamente a una probabilità [0, 1]
+    # Aggiungiamo un leggero margine superiore per visibilità (1.05)
+    ax.set_ylim(0, 1.05)
+    ax.set_xlim(left=0) # Impedisce all'asse X di andare sotto lo zero
+
+    os.makedirs(output_folder, exist_ok=True)
+    combined_file_path = os.path.join(output_folder, "7-DL_throughput_worst5_cdf.png")
+    fig.savefig(combined_file_path, dpi=300, bbox_inches="tight")
+    plt.close()
