@@ -395,7 +395,7 @@ class PPOAgent:
         lr_critic = 0.0001
         hidden_neurons = 128
         
-        self.max_vis_sat = 30
+        self.max_vis_sat = 70
         self.num_features = 3
         state_dim = self.max_vis_sat * self.num_features
         self.ppo = PPO(state_dim, self.max_vis_sat, hidden_neurons, lr_actor, lr_critic, gamma, K_epochs, eps_clip)
@@ -410,6 +410,10 @@ class PPOAgent:
         if len(states) < self.max_vis_sat:
             for _ in range(self.max_vis_sat - len(states)):
                 states.append([0]*self.num_features)
+
+        if len(states) > self.max_vis_sat:
+            states = states[:self.max_vis_sat]
+            sat_infos = sat_infos[:self.max_vis_sat]
         
         states = np.asarray(states).reshape(1, -1)
         self.states.append(states)
