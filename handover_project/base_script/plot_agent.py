@@ -2,6 +2,9 @@ import seaborn as sns
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
+import matplotlib
+matplotlib.use('Agg') 
+import matplotlib.pyplot as plt
 
 df = pd.read_csv('agent_log.csv')
 print(df)
