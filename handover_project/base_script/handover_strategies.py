@@ -23,9 +23,8 @@ def get_random_visible_satellite(visible_satellites):
     if(number_of_satellites == 0):
         return None
     random_index = random.randint(0, number_of_satellites-1) # pick a random index
-    next_sat = visible_satellites[random_index][0] # get the satellite corresponding to the random index
-    next_beam_index = visible_satellites[random_index][1]  # get the beam index that is covering the ue
-    return next_sat, next_beam_index
+    next_sat = visible_satellites[random_index] # get the satellite corresponding to the random index
+    return next_sat
 
 def get_max_elevation_satellite(visible_satellites, current_positions_df, round_time, mini_cluster):
     """
@@ -52,9 +51,8 @@ def get_max_elevation_satellite(visible_satellites, current_positions_df, round_
     satellites_with_elevation = sorted(satellites_with_elevation, key=lambda x: x[2], reverse=True)
     choices = max(int(0.3*len(satellites_with_elevation)), 1)
     random_index = random.randint(0, choices-1)
-    next_sat = satellites_with_elevation[random_index][0]
-    next_beam_index = satellites_with_elevation[random_index][1]
-    return next_sat, next_beam_index
+    next_sat = satellites_with_elevation[random_index]
+    return next_sat
 
 def get_max_visibility_satellite(visible_satellites, current_positions_df, round_time):
     """
@@ -79,9 +77,8 @@ def get_max_visibility_satellite(visible_satellites, current_positions_df, round
     satellites_with_visibility = sorted(satellites_with_visibility, key=lambda x: x[2], reverse=True)
     choices = max(int(0.3*len(satellites_with_visibility)), 1)
     random_index = random.randint(0, choices-1)
-    next_sat = satellites_with_visibility[random_index][0]
-    next_beam_index = satellites_with_visibility[random_index][1]
-    return next_sat, next_beam_index
+    next_sat = satellites_with_visibility[random_index]
+    return next_sat
 
 def get_max_available_throughput_satellite(visible_satellites, round_time, mini_cluster, service_satellites, mainframe, scenario, pointing):
     """
@@ -114,9 +111,8 @@ def get_max_available_throughput_satellite(visible_satellites, round_time, mini_
     # sort the throughput
     satellites_with_throughput = sorted(satellites_with_throughput, key=lambda x: x[2], reverse=True)
     best_index = 0
-    next_sat = satellites_with_throughput[best_index][0]
-    next_beam_index = satellites_with_throughput[best_index][1]
-    return next_sat, next_beam_index
+    next_sat = satellites_with_throughput[best_index]
+    return next_sat
 
 def get_best_neighbor_snr(visible_satellites, curr_sat_name, round_time, mini_cluster, df_satellites_positions, scenario):
     """
@@ -125,16 +121,14 @@ def get_best_neighbor_snr(visible_satellites, curr_sat_name, round_time, mini_cl
     """
     best_satellite = None
     best_snr_dl = None
-    best_beam_index = None
-    for satellite_tuple, beam_index in visible_satellites:
+    for satellite_tuple in visible_satellites:
         satellite_name = satellite_tuple[0]
         if(curr_sat_name != satellite_name):
             current_snr_dl, _ = utils.get_noisy_snr(df_satellites_positions, round_time, satellite_name, mini_cluster.position, scenario)
             if(best_snr_dl is None or current_snr_dl > best_snr_dl):
                 best_snr_dl = current_snr_dl
                 best_satellite = satellite_tuple
-                best_beam_index = beam_index
-    return best_satellite, best_beam_index, best_snr_dl
+    return best_satellite,  best_snr_dl
 
 
 def get_a_better_neighbor_snr(visible_satellites, curr_sat_name, round_time, mini_cluster, df_satellites_positions, scenario, curr_snr_dl, snr_difference_threshold):
@@ -145,21 +139,19 @@ def get_a_better_neighbor_snr(visible_satellites, curr_sat_name, round_time, min
     """
     best_satellite = None
     best_snr_dl = None
-    best_beam_index = None
     candidate_satellites = []
-    for satellite_tuple, beam_index in visible_satellites:
+    for satellite_tuple in visible_satellites:
         satellite_name = satellite_tuple[0]
         if(curr_sat_name != satellite_name):
             candidate_snr_dl, _ = utils.get_noisy_snr(df_satellites_positions, round_time, satellite_name, mini_cluster.position, scenario)
             if(candidate_snr_dl - curr_snr_dl > snr_difference_threshold):
-                candidate_satellites.append((candidate_snr_dl, satellite_tuple, beam_index))
+                candidate_satellites.append((candidate_snr_dl, satellite_tuple))
 
     if(candidate_satellites):
         # select a random candidate satellite from the list of candidates
         selected_candidate = random.choice(candidate_satellites)
         best_snr_dl = selected_candidate[0]
         best_satellite = selected_candidate[1]
-        best_beam_index = selected_candidate[2]
 
-    return best_satellite, best_beam_index, best_snr_dl
+    return best_satellite, best_snr_dl
 

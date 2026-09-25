@@ -25,12 +25,10 @@ class Beam:
         if(len(visible_sats) > 0):
             # For each UE, connect to a random satellite
             for ue in self.list_ues:
-
                 random_index = random.randint(0, len(visible_sats)-1)
                 ue.time_to_next_handover = random.randint(1, handover_timer) # set a random condition for the first handover timer
-                selected_sat = visible_sats[random_index][0]
-                selected_sat_beam = visible_sats[random_index][1]
-                selected_sat_name = selected_sat[0]
+                selected_sat_name = visible_sats[random_index][0]
+                selected_sat_beam = self.index # should be the same of the terrestrial mini-cluster
                 # is this satellite already configured?
                 if selected_sat_name not in service_sats:
                     sat = Satellite(selected_sat_name, self.sat_servers, self.sat_mu_inter, self.sat_mu_intra, int(pow(self.cell_dim_beams, 2)))
