@@ -114,7 +114,7 @@ class Cluster:
     
 
 
-    def monitor(self, time, service_sats, ho_condition, sat_selection_condition):
+    def monitor(self, time, service_sats, old_service_sats, ho_condition, sat_selection_condition):
         """
             This function handles the monitoring of the current connections of the UEs and the handover process if needed. 
             It should be called at each time step of the simulation.
@@ -137,7 +137,7 @@ class Cluster:
         for sat in list(service_sats.values()):
             exists = any(item[0] == sat.name for item in visible_sats)
             if not exists:
-                service_sats.pop(sat.name)
+                old_service_sats[sat.name] = service_sats.pop(sat.name)
                 count_of_sats_went_out_of_visibility += 1
         # print(f"\n{count_of_sats_went_out_of_visibility} went out of visibility!")
         # selects the next serving satellites to include
@@ -220,22 +220,22 @@ class Cluster:
                         snr_dl, _ = utils.get_noisy_snr(self.df_satellites_positions, round_time, curr_sat.name, mini_cluster.position, self.scenario, self.pointing)
                         choices = len(actual_visible_sats)
                         if(not enhanced_flag):
-                            best_satellite, best_beam_index, best_snr_dl = strategies.get_best_neighbor_snr(actual_visible_sats, curr_sat.name, round_time, mini_cluster, self.df_satellites_positions, self.scenario)
+                            best_satellite, best_snr_dl = strategies.get_best_neighbor_snr(actual_visible_sats, curr_sat.name, round_time, mini_cluster, self.df_satellites_positions, self.scenario)
                         else:
-                            best_satellite, best_beam_index, best_snr_dl = strategies.get_a_better_neighbor_snr(actual_visible_sats, curr_sat.name, round_time, mini_cluster, self.df_satellites_positions, self.scenario, snr_dl, snr_difference_threshold)
+                            best_satellite, best_snr_dl = strategies.get_a_better_neighbor_snr(actual_visible_sats, curr_sat.name, round_time, mini_cluster, self.df_satellites_positions, self.scenario, snr_dl, snr_difference_threshold)
 
                     else:
                         choices = len(actual_visible_sats)
                         if(not enhanced_flag):
-                            best_satellite, best_beam_index, best_snr_dl = strategies.get_best_neighbor_snr(actual_visible_sats, "", round_time, mini_cluster, self.df_satellites_positions, self.scenario)
+                            best_satellite, best_snr_dl = strategies.get_best_neighbor_snr(actual_visible_sats, "", round_time, mini_cluster, self.df_satellites_positions, self.scenario)
                         else:
-                            best_satellite, best_beam_index, best_snr_dl = strategies.get_a_better_neighbor_snr(actual_visible_sats, "", round_time, mini_cluster, self.df_satellites_positions, self.scenario, snr_dl, snr_difference_threshold)
+                            best_satellite, best_snr_dl = strategies.get_a_better_neighbor_snr(actual_visible_sats, "", round_time, mini_cluster, self.df_satellites_positions, self.scenario, snr_dl, snr_difference_threshold)
 
                     satellite_out_visibility = ue.inter_handover_flag
                     if((best_satellite is not None) and (best_snr_dl - snr_dl > snr_difference_threshold or satellite_out_visibility)):
                         ue.inter_handover_flag = True
                         next_sat = best_satellite
-                        next_beam_index = best_beam_index
+                        next_beam_index = mini_cluster.index
 
                 ###################### CLASSIC HO ######################
                 # ============== Performe the handover (if selected) ==============
@@ -254,7 +254,7 @@ class Cluster:
                     elif(sat_selection_condition == "MAX_VISIBILITY"):
                         next_sat = strategies.get_max_visibility_satellite(actual_visible_sats, curr_time_df, round_time)
                     elif(sat_selection_condition == "AVL_THR"):
-                        next_sat, = strategies.get_max_available_throughput_satellite(actual_visible_sats, round_time, mini_cluster, service_sats, self.df_satellites_positions, self.scenario, self.pointing)
+                        next_sat = strategies.get_max_available_throughput_satellite(actual_visible_sats, round_time, mini_cluster, service_sats, self.df_satellites_positions, self.scenario, self.pointing)
                     elif(sat_selection_condition == "A3"):
                         pass # since the next satellite informations are filled by the trigger event function, there is no need to do anything here.
                     if(next_sat is not None):

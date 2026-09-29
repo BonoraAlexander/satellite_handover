@@ -449,15 +449,16 @@ def get_elevation(frame, target_time, satellite_name, mini_cluster_position):
     try:
         matched_satellite = frame[frame['time'].astype(str) == target_time_str]
         matched_satellite = matched_satellite[matched_satellite['sat_name'].astype(str) == satellite_name]
-        sat_lat = float(matched_satellite['sat_lat'].iloc[0])
-        sat_long = float(matched_satellite['sat_lon'].iloc[0])
-        sat_alt_m = float(matched_satellite['sat_height'].iloc[0])
-
-        sat_elev = ChannelParameters.elevation_angle_deg(
-                mini_cluster_lat, mini_cluster_lon,
-                sat_lat, sat_long,
-                sat_alt_m
-            )
+        sat_elev = 0
+        if(len(matched_satellite) > 0):
+            sat_lat = float(matched_satellite['sat_lat'].iloc[0])
+            sat_long = float(matched_satellite['sat_lon'].iloc[0])
+            sat_alt_m = float(matched_satellite['sat_height'].iloc[0])
+            sat_elev = ChannelParameters.elevation_angle_deg(
+                    mini_cluster_lat, mini_cluster_lon,
+                    sat_lat, sat_long,
+                    sat_alt_m
+                )
         
     except KeyError as e:
         print(f"Error: Missing expected column in DataFrame - {e}")
@@ -466,7 +467,7 @@ def get_elevation(frame, target_time, satellite_name, mini_cluster_position):
         
     return sat_elev
 
-def get_noisy_snr(frame, target_time, satellite_name, mini_cluster_position, parameters, elevation_angle_deg, pointing=True):
+def get_noisy_snr(frame, target_time, satellite_name, mini_cluster_position, parameters, pointing=True):
     """
     Compute the dl and ul snr given the minicluster and sat positions.
     Args:
@@ -486,13 +487,16 @@ def get_noisy_snr(frame, target_time, satellite_name, mini_cluster_position, par
     try:
         matched_satellite = frame[frame['time'].astype(str) == target_time_str]
         matched_satellite = matched_satellite[matched_satellite['sat_name'].astype(str) == satellite_name]
-        sat_lat = float(matched_satellite['sat_lat'].iloc[0])
-        sat_lon = float(matched_satellite['sat_lon'].iloc[0])
-        sat_alt_m = float(matched_satellite['sat_height'].iloc[0])
-        distance_m = compute_distance_m(sat_lat, sat_lon, sat_alt_m, mini_cluster_lat, mini_cluster_lon, 0)
-        elevation_angle_deg = ChannelParameters.elevation_angle_deg(mini_cluster_lat, mini_cluster_lon, sat_lat, sat_lon, sat_alt_m)
+        snr_dl_db = -100
+        snr_ul_db = -100
+        if(len(matched_satellite) > 0):
+            sat_lat = float(matched_satellite['sat_lat'].iloc[0])
+            sat_lon = float(matched_satellite['sat_lon'].iloc[0])
+            sat_alt_m = float(matched_satellite['sat_height'].iloc[0])
+            distance_m = compute_distance_m(sat_lat, sat_lon, sat_alt_m, mini_cluster_lat, mini_cluster_lon, 0)
+            elevation_angle_deg = ChannelParameters.elevation_angle_deg(mini_cluster_lat, mini_cluster_lon, sat_lat, sat_lon, sat_alt_m)
 
-        snr_dl_db, snr_ul_db = compute_snr(distance_m, parameters, elevation_angle_deg, pointing)
+            snr_dl_db, snr_ul_db = compute_snr(distance_m, parameters, elevation_angle_deg, pointing)
     except KeyError as e:
         print(f"Error: Missing expected column in DataFrame - {e}")
     except ValueError as e:
